@@ -48,11 +48,20 @@ async function bootstrap() {
   // ───────────────────────────────────────────────────────────────────────────
   // El navegador envía `Origin` SIN trailing slash (ej. https://raverp.netlify.app).
   // Si `FRONTEND_URL` está configurada con `/` final, el match falla y CORS
-  // bloquea silenciosamente — exactamente el síntoma típico de "el login no
-  // funciona en producción" sin error visible en backend.
-  // Normalizamos quitando la `/` final y permitimos lista separada por coma
-  // para soportar previews de Netlify o dominios staging.
+  // bloquea silenciosamente — síntoma clásico de "login no funciona en prod"
+  // sin error visible en backend.
+  //
+  // Estrategia:
+  //   1. Normalizamos las URLs (quitamos `/` final).
+  //   2. Aceptamos lista separada por coma para múltiples frontends.
+  //   3. Aceptamos cualquier `*.netlify.app` y `*.netlify.live` para que
+  //      previews y deploy-previews funcionen sin reconfigurar.
+  //   4. Aceptamos localhost para desarrollo.
+  //   5. Logueamos cada rechazo para que el `404 No 'Access-Control-Allow-Origin'`
+  //      del navegador deje rastro en los logs del backend (antes no había
+  //      forma de ver qué origin estaba bloqueando).
   // ───────────────────────────────────────────────────────────────────────────
+  const corsLogger = new Logger('CORS');
   const stripSlash = (s: string) => s.replace(/\/+$/, '').trim();
   const corsRaw =
     config.get<string>('FRONTEND_URL') ?? 'https://raverp.netlify.app';
@@ -60,6 +69,11 @@ async function bootstrap() {
     .split(',')
     .map(stripSlash)
     .filter(Boolean);
+  corsLogger.log(`Allowlist exacta: ${allowedOrigins.join(', ') || '(vacía)'}`);
+  corsLogger.log('Patrones permitidos: *.netlify.app, *.netlify.live, localhost');
+
+  const NETLIFY_RE = /\.netlify\.(app|live)$/i;
+  const LOCAL_RE = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i;
 
   app.use(helmet({
     // Swagger UI usa scripts inline; permitirlos solo en /api/docs.
@@ -75,18 +89,38 @@ async function bootstrap() {
 
   app.enableCors({
     origin: (origin, cb) => {
-      // Peticiones server-to-server o curl no traen Origin → permitir.
+      // Peticiones server-to-server, curl o el propio backend no traen Origin.
       if (!origin) return cb(null, true);
       const normalized = stripSlash(origin);
+
+      // 1) Match exacto contra la allowlist.
       if (allowedOrigins.includes(normalized)) return cb(null, true);
-      // Si tu dominio principal va con `www`, también lo aceptamos sin él
-      // y viceversa para evitar el clásico misconfig de "uno funciona y el
-      // otro no" tras configurar el dominio en Netlify.
-      const withWww = `https://www.${normalized.replace(/^https?:\/\//, '')}`;
-      const withoutWww = normalized.replace(/^https?:\/\/www\./, 'https://');
-      if (allowedOrigins.includes(withWww) || allowedOrigins.includes(withoutWww)) {
+
+      // 2) Cualquier dominio *.netlify.app / *.netlify.live — cubre el
+      //    dominio principal del proyecto y todos los deploy-previews.
+      try {
+        const hostname = new URL(normalized).hostname;
+        if (NETLIFY_RE.test(hostname)) return cb(null, true);
+      } catch {
+        // URL inválida — sigue al rechazo.
+      }
+
+      // 3) Desarrollo local.
+      if (LOCAL_RE.test(normalized)) return cb(null, true);
+
+      // 4) www. ↔ sin www. (por si configuran el dominio propio asimétrico).
+      const stripped = normalized.replace(/^https?:\/\/www\./, 'https://');
+      const wwwed = `https://www.${normalized.replace(/^https?:\/\//, '')}`;
+      if (
+        allowedOrigins.includes(stripped) ||
+        allowedOrigins.includes(wwwed)
+      ) {
         return cb(null, true);
       }
+
+      corsLogger.warn(
+        `Bloqueado: origin "${origin}". Allowlist: [${allowedOrigins.join(', ')}].`,
+      );
       return cb(new Error(`Origin ${origin} no autorizado por CORS`), false);
     },
     credentials: true,
