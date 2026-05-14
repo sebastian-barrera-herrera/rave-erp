@@ -43,7 +43,12 @@
       "Bash(echo \"FRONT_EXIT=$?\")",
       "Bash(awk '{print $9, $5}')",
       "Bash(cd /c/Users/Sebastián/Documents/front-next-rave/public && ls -lh favicon* 2>/dev/null | awk '{print $9, $5}')",
-      "Bash(node -e 'const fs=require\\('\\\\''fs'\\\\''\\);const b=fs.readFileSync\\('\\\\''__TRACKED_VAR__'\\\\''\\);console.log\\('\\\\''size_bytes:'\\\\'',b.length\\);if\\('\\\\''__TRACKED_VAR__'\\\\''.endsWith\\('\\\\''.png'\\\\''\\)\\){console.log\\('\\\\''width:'\\\\'',b.readUInt32BE\\(16\\),'\\\\''height:'\\\\'',b.readUInt32BE\\(20\\)\\);}')"
+      "Bash(node -e 'const fs=require\\('\\\\''fs'\\\\''\\);const b=fs.readFileSync\\('\\\\''__TRACKED_VAR__'\\\\''\\);console.log\\('\\\\''size_bytes:'\\\\'',b.length\\);if\\('\\\\''__TRACKED_VAR__'\\\\''.endsWith\\('\\\\''.png'\\\\''\\)\\){console.log\\('\\\\''width:'\\\\'',b.readUInt32BE\\(16\\),'\\\\''height:'\\\\'',b.readUInt32BE\\(20\\)\\);}')",
+      "Bash(node -e \"console.log\\('next:', require\\('./package.json'\\).dependencies.next\\)\")",
+      "Bash(node -e \"console.log\\('next:', require\\('./package.json'\\).dependencies.next\\); console.log\\('installed:', require\\('./node_modules/next/package.json'\\).version\\)\")",
+      "Bash(echo \"TS_EXIT=$?\")",
+      "Bash(npx next *)",
+      "Bash(echo \"BUILD_EXIT=$?\")"
     ]
   }
 }
