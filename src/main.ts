@@ -42,7 +42,7 @@ async function bootstrap() {
   const config = app.get(ConfigService);
   const port = config.get<number>('PORT', 3000);
   const prefix = config.get<string>('API_PREFIX', 'api');
-  const frontendUrl = config.get<string>('FRONTEND_URL', 'http://localhost:3001');
+  const frontendUrl = config.get<string>('FRONTEND_URL', 'https://raverp.netlify.app/');
 
   app.use(helmet({
     // Swagger UI usa scripts inline; permitirlos solo en /api/docs.

@@ -159,7 +159,7 @@ export class WompiService implements OnModuleInit {
     const reference = this.buildReference(company.id, dto.plan);
     const frontendUrl = this.configService.get<string>(
       'FRONTEND_URL',
-      'http://localhost:3001',
+      'https://raverp.netlify.app/',
     );
     // Aseguramos que el redirect siempre lleve `wompi=success&ref=…` para
     // que el frontend pueda disparar el sync manual al regresar (la red de
