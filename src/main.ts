@@ -42,7 +42,24 @@ async function bootstrap() {
   const config = app.get(ConfigService);
   const port = config.get<number>('PORT', 3000);
   const prefix = config.get<string>('API_PREFIX', 'api');
-  const frontendUrl = config.get<string>('FRONTEND_URL', 'https://raverp.netlify.app/');
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // CORS allowlist tolerante
+  // ───────────────────────────────────────────────────────────────────────────
+  // El navegador envía `Origin` SIN trailing slash (ej. https://raverp.netlify.app).
+  // Si `FRONTEND_URL` está configurada con `/` final, el match falla y CORS
+  // bloquea silenciosamente — exactamente el síntoma típico de "el login no
+  // funciona en producción" sin error visible en backend.
+  // Normalizamos quitando la `/` final y permitimos lista separada por coma
+  // para soportar previews de Netlify o dominios staging.
+  // ───────────────────────────────────────────────────────────────────────────
+  const stripSlash = (s: string) => s.replace(/\/+$/, '').trim();
+  const corsRaw =
+    config.get<string>('FRONTEND_URL') ?? 'https://raverp.netlify.app';
+  const allowedOrigins = corsRaw
+    .split(',')
+    .map(stripSlash)
+    .filter(Boolean);
 
   app.use(helmet({
     // Swagger UI usa scripts inline; permitirlos solo en /api/docs.
@@ -57,7 +74,21 @@ async function bootstrap() {
   app.use(urlencoded({ extended: true, limit: '5mb' }));
 
   app.enableCors({
-    origin: frontendUrl,
+    origin: (origin, cb) => {
+      // Peticiones server-to-server o curl no traen Origin → permitir.
+      if (!origin) return cb(null, true);
+      const normalized = stripSlash(origin);
+      if (allowedOrigins.includes(normalized)) return cb(null, true);
+      // Si tu dominio principal va con `www`, también lo aceptamos sin él
+      // y viceversa para evitar el clásico misconfig de "uno funciona y el
+      // otro no" tras configurar el dominio en Netlify.
+      const withWww = `https://www.${normalized.replace(/^https?:\/\//, '')}`;
+      const withoutWww = normalized.replace(/^https?:\/\/www\./, 'https://');
+      if (allowedOrigins.includes(withWww) || allowedOrigins.includes(withoutWww)) {
+        return cb(null, true);
+      }
+      return cb(new Error(`Origin ${origin} no autorizado por CORS`), false);
+    },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],

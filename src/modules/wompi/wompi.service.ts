@@ -157,10 +157,15 @@ export class WompiService implements OnModuleInit {
 
     const currency = 'COP';
     const reference = this.buildReference(company.id, dto.plan);
-    const frontendUrl = this.configService.get<string>(
+    // Normalizamos la URL del frontend: si la env trae trailing slash
+    // (ej. `https://raverp.netlify.app/`), `${frontendUrl}/suscripcion`
+    // generaría `//suscripcion` — algunos navegadores lo aceptan pero rompe
+    // el reconocimiento de la ruta en Next.js. Quitamos el `/` final.
+    const rawFrontendUrl = this.configService.get<string>(
       'FRONTEND_URL',
-      'https://raverp.netlify.app/',
+      'https://raverp.netlify.app',
     );
+    const frontendUrl = rawFrontendUrl.replace(/\/+$/, '');
     // Aseguramos que el redirect siempre lleve `wompi=success&ref=…` para
     // que el frontend pueda disparar el sync manual al regresar (la red de
     // seguridad cuando el webhook tarda o no llega — p.ej. en sandbox sin

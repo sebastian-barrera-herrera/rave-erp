@@ -42,6 +42,11 @@ import { HealthController } from './common/health.controller';
           );
         }
         const userLogging = cfg.get<string>('DB_LOGGING') === 'true';
+        // Red de seguridad: en producción NUNCA encender `synchronize` aunque
+        // la env var lo pida. `synchronize: true` puede borrar columnas o
+        // alterar el schema sin migración — irreversible en producción. Si
+        // alguien pone DB_SYNC=true en Render por error, lo ignoramos.
+        const isProd = process.env.NODE_ENV === 'production';
         return {
           type: 'postgres',
           url: dbUrl,
@@ -51,7 +56,7 @@ import { HealthController } from './common/health.controller';
           // ConfigService devuelve strings ("false" es truthy), así que
           // comparamos explícitamente contra 'true' para evitar que
           // synchronize quede activo y choque con las migraciones.
-          synchronize: cfg.get<string>('DB_SYNC') === 'true',
+          synchronize: isProd ? false : cfg.get<string>('DB_SYNC') === 'true',
           // Ejecuta migraciones pendientes al arrancar. Sin esto el usuario
           // tendría que correr `npm run migration:run` a mano y un constraint
           // pendiente como el de `sales.invoice_number` lo seguiría bloqueando.
