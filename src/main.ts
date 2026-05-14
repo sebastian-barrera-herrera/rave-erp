@@ -7,9 +7,10 @@
 // - Monta la documentación Swagger interactiva en /api/docs.
 // ─────────────────────────────────────────────────────────────────────────────
 import { NestFactory, Reflector } from '@nestjs/core';
-import { ValidationPipe, ClassSerializerInterceptor } from '@nestjs/common';
+import { ValidationPipe, ClassSerializerInterceptor, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
+import { DataSource } from 'typeorm';
 import helmet from 'helmet';
 import { json, urlencoded } from 'express';
 import { types as pgTypes } from 'pg';
@@ -140,6 +141,50 @@ async function bootstrap() {
     },
     customSiteTitle: 'ERP SaaS — API Docs',
   });
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // Verificación explícita de la conexión a la DB y conteo de tablas
+  // ───────────────────────────────────────────────────────────────────────────
+  // TypeORM se inicializa "perezosamente" y los logs no dejan claro si las
+  // migraciones corrieron ni cuántas tablas hay. Esto da feedback inmediato
+  // en producción: si la DB está vacía o si la conexión falla, se ve aquí.
+  // ───────────────────────────────────────────────────────────────────────────
+  const logger = new Logger('Bootstrap');
+  try {
+    const dataSource = app.get(DataSource);
+    const dbResult: Array<{ count: string }> = await dataSource.query(
+      `SELECT COUNT(*)::int as count FROM information_schema.tables WHERE table_schema = 'public'`,
+    );
+    const tableCount = Number(dbResult[0]?.count ?? 0);
+    const migrationsExecuted = await dataSource
+      .query(
+        `SELECT COUNT(*)::int as count FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'migrations'`,
+      )
+      .then((r: Array<{ count: string }>) => Number(r[0]?.count ?? 0) > 0);
+
+    if (tableCount === 0) {
+      logger.error(
+        'DB conectada pero VACÍA — ninguna tabla en el schema public. ' +
+          'Las migraciones no corrieron. Revisa DB_MIGRATIONS_RUN y los logs de migración arriba.',
+      );
+    } else if (!migrationsExecuted) {
+      logger.warn(
+        `DB tiene ${tableCount} tabla(s) pero no la tabla \`migrations\` de TypeORM. ` +
+          `Puede ser una DB poblada manualmente. Activa DB_MIGRATIONS_RUN=true si quieres versionar.`,
+      );
+    } else {
+      const migRows: Array<{ name: string }> = await dataSource.query(
+        `SELECT name FROM migrations ORDER BY id DESC LIMIT 5`,
+      );
+      logger.log(
+        `✅ DB OK — ${tableCount} tabla(s) en public. Última migración: ${migRows[0]?.name ?? '(ninguna)'}.`,
+      );
+    }
+  } catch (err: any) {
+    logger.error(
+      `❌ Falló la verificación de DB: ${err?.message ?? err}. La app arrancará pero los endpoints fallarán.`,
+    );
+  }
 
   await app.listen(port);
   console.log(`🚀 ERP SaaS API running on http://localhost:${port}/${prefix}`);
