@@ -245,6 +245,108 @@ export class WarehousesService {
     });
   }
 
+  /**
+   * Transfiere varios productos en una sola transacción. Si CUALQUIERA
+   * falla (stock insuficiente, bodega inexistente, etc.), revierte todo.
+   * Pedido reportado: "se deberían pasar varios productos a la vez en
+   * bodegas y no solamente de a uno".
+   */
+  async transferBulk(
+    dto: import('./dto/warehouse.dto').BulkTransferStockDto,
+    companyId: string,
+    userId: string,
+  ) {
+    if (dto.from_warehouse_id === dto.to_warehouse_id) {
+      throw new BadRequestException('La bodega origen y destino no pueden ser la misma');
+    }
+    if (!dto.items?.length) {
+      throw new BadRequestException('Debes incluir al menos un producto');
+    }
+
+    return this.dataSource.transaction(async (manager) => {
+      const stockRepo = manager.getRepository(WarehouseStock);
+
+      const from = await manager.findOne(Warehouse, {
+        where: { id: dto.from_warehouse_id, company_id: companyId },
+      });
+      const to = await manager.findOne(Warehouse, {
+        where: { id: dto.to_warehouse_id, company_id: companyId },
+      });
+      if (!from || !to) throw new NotFoundException('Bodega no encontrada');
+
+      const results: Array<{ product_id: string; from: number; to: number }> = [];
+
+      for (const item of dto.items) {
+        const fromEntry = await stockRepo.findOne({
+          where: { warehouse_id: from.id, product_id: item.product_id },
+        });
+        if (!fromEntry || fromEntry.stock < item.quantity) {
+          throw new BadRequestException(
+            `Stock insuficiente para producto ${item.product_id} en "${from.name}" (disponible: ${fromEntry?.stock ?? 0})`,
+          );
+        }
+
+        let toEntry = await stockRepo.findOne({
+          where: { warehouse_id: to.id, product_id: item.product_id },
+        });
+        if (!toEntry) {
+          toEntry = stockRepo.create({
+            company_id: companyId,
+            warehouse_id: to.id,
+            product_id: item.product_id,
+            stock: 0,
+            min_stock: 0,
+          });
+        }
+
+        const fromBefore = fromEntry.stock;
+        const toBefore = toEntry.stock;
+        fromEntry.stock = fromBefore - item.quantity;
+        toEntry.stock = toBefore + item.quantity;
+        await stockRepo.save([fromEntry, toEntry]);
+
+        await manager.save([
+          manager.create(InventoryMovement, {
+            company_id: companyId,
+            product_id: item.product_id,
+            user_id: userId,
+            warehouse_id: from.id,
+            type: MovementType.TRANSFER_OUT,
+            quantity: item.quantity,
+            stock_before: fromBefore,
+            stock_after: fromEntry.stock,
+            reason: dto.reason ?? `Transferencia hacia ${to.name}`,
+          }),
+          manager.create(InventoryMovement, {
+            company_id: companyId,
+            product_id: item.product_id,
+            user_id: userId,
+            warehouse_id: to.id,
+            type: MovementType.TRANSFER_IN,
+            quantity: item.quantity,
+            stock_before: toBefore,
+            stock_after: toEntry.stock,
+            reason: dto.reason ?? `Transferencia desde ${from.name}`,
+          }),
+        ]);
+
+        await this.recomputeProductStock(manager, item.product_id, companyId);
+
+        results.push({
+          product_id: item.product_id,
+          from: fromEntry.stock,
+          to: toEntry.stock,
+        });
+      }
+
+      return {
+        message: `Transferencia masiva realizada (${results.length} productos)`,
+        transferred: results.length,
+        results,
+      };
+    });
+  }
+
   async transfer(dto: TransferStockDto, companyId: string, userId: string) {
     if (dto.from_warehouse_id === dto.to_warehouse_id) {
       throw new BadRequestException('La bodega origen y destino no pueden ser la misma');

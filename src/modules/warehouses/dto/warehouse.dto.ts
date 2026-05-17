@@ -99,3 +99,33 @@ export class TransferStockDto {
   @IsOptional() @IsString()
   reason?: string;
 }
+
+class BulkTransferItemDto {
+  @ApiProperty({ description: 'UUID del producto a transferir' })
+  @IsUUID()
+  product_id: string;
+
+  @ApiProperty({ example: 10, minimum: 1 })
+  @IsInt() @Min(1)
+  quantity: number;
+}
+
+export class BulkTransferStockDto {
+  @ApiProperty({ description: 'UUID bodega origen' })
+  @IsUUID()
+  from_warehouse_id: string;
+
+  @ApiProperty({ description: 'UUID bodega destino' })
+  @IsUUID()
+  to_warehouse_id: string;
+
+  @ApiProperty({
+    description: 'Lista de productos a transferir',
+    type: [BulkTransferItemDto],
+  })
+  items: BulkTransferItemDto[];
+
+  @ApiPropertyOptional({ example: 'Reabastecimiento sucursal' })
+  @IsOptional() @IsString()
+  reason?: string;
+}

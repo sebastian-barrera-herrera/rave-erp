@@ -30,6 +30,14 @@ export class Customer {
   @Column({ nullable: true })
   address: string;
 
+  /** Departamento / provincia / estado. En Colombia: 32 departamentos. */
+  @Column({ nullable: true, length: 100 })
+  state: string;
+
+  /** Municipio / ciudad. */
+  @Column({ nullable: true, length: 100 })
+  city: string;
+
   @Column({ nullable: true, length: 50 })
   document_number: string; // CC, NIT, RUC, etc.
 
