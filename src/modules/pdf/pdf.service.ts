@@ -390,7 +390,10 @@ export class PdfService {
     doc.fontSize(22).fillColor(WHITE).font('Helvetica-Bold')
       .text(company.display_name || company.name, textX, 25, { width: 280 });
 
-    doc.fontSize(9).fillColor('#A0B4CC').font('Helvetica');
+    // Texto en blanco para contraste fuerte sobre el header oscuro — antes
+    // estaba en '#A0B4CC' (azul-gris claro) y se veía apagado contra el
+    // PRIMARY navy. Negro puro no funciona acá porque el fondo es oscuro.
+    doc.fontSize(9).fillColor(WHITE).font('Helvetica');
     if (company.address) doc.text(company.address, textX, 55, { width: 260 });
     if (company.email) doc.text(company.email, textX, 68, { width: 260 });
     if (company.phone) doc.text(company.phone, textX, 81, { width: 260 });
@@ -417,9 +420,9 @@ export class PdfService {
     }
     doc.fontSize(18).fillColor(WHITE).font('Helvetica-Bold')
       .text(company.display_name || company.name, textX, 15, { width: 320 });
-    doc.fontSize(12).fillColor('#A0B4CC').font('Helvetica')
+    doc.fontSize(12).fillColor(WHITE).font('Helvetica')
       .text(title, textX, 42, { width: 320 });
-    doc.fontSize(9).fillColor('#A0B4CC')
+    doc.fontSize(9).fillColor(WHITE)
       .text(fmtDate(new Date()), doc.page.width - 130, 42);
     doc.y = 90;
   }
@@ -445,34 +448,37 @@ export class PdfService {
 
   private drawCustomerBlock(doc: any, sale: Sale) {
     const y = doc.y + 5;
-    const blockW = 320;
-    const textW = blockW - 24; // 12pt padding a cada lado
-    doc.rect(50, y, blockW, 80).fill(LIGHT_GRAY).stroke('#E2E8F0');
+    // 5pt extra de separación del borde fisico para evitar que los visores/
+    // impresoras recorten el inicio del bloque (reporte de "desbordamiento
+    // a la izquierda" en portrait).
+    const blockW = 315;
+    const textW = blockW - 24;
+    doc.rect(55, y, blockW, 80).fill(LIGHT_GRAY).stroke('#E2E8F0');
     doc.fontSize(9).fillColor(MID_GRAY).font('Helvetica-Bold')
-      .text('FACTURAR A', 62, y + 10, { width: textW });
+      .text('FACTURAR A', 67, y + 10, { width: textW });
     doc.fontSize(12).fillColor(DARK).font('Helvetica-Bold')
-      .text(sale.customer?.name || '', 62, y + 24, { width: textW, ellipsis: true, lineBreak: false });
+      .text(sale.customer?.name || '', 67, y + 24, { width: textW, ellipsis: true, lineBreak: false });
     doc.fontSize(9).fillColor(DARK).font('Helvetica');
     if (sale.customer?.document_number)
-      doc.text(`ID: ${sale.customer.document_number}`, 62, y + 42, { width: textW, ellipsis: true, lineBreak: false });
+      doc.text(`ID: ${sale.customer.document_number}`, 67, y + 42, { width: textW, ellipsis: true, lineBreak: false });
     if (sale.customer?.email)
-      doc.text(sale.customer.email, 62, y + 54, { width: textW, ellipsis: true, lineBreak: false });
+      doc.text(sale.customer.email, 67, y + 54, { width: textW, ellipsis: true, lineBreak: false });
     if (sale.customer?.phone)
-      doc.text(sale.customer.phone, 62, y + 66, { width: textW, ellipsis: true, lineBreak: false });
+      doc.text(sale.customer.phone, 67, y + 66, { width: textW, ellipsis: true, lineBreak: false });
 
     doc.y = y + 95;
   }
 
   private drawItemsTable(doc: any, sale: Sale) {
     const startY = doc.y;
-    // A4 portrait usable area: 50..545 (495pt). Column widths suman 495.
-    // Damos más espacio a P.UNIT y SUBTOTAL porque los importes en COP suelen
-    // ser largos ("$ 1.234.567") y antes se desbordaban un poco.
-    // desc=200 | qty=45 | price=85 | disc=55 | sub=110 = 495
-    const cols = { desc: 50, qty: 250, price: 295, disc: 380, sub: 435 };
-    const widths = { desc: 200, qty: 45, price: 85, disc: 55, sub: 110 };
+    // A4 portrait usable: 55..545 (490pt). Movimos el borde izquierdo de 50
+    // a 55 para evitar el desbordamiento que el usuario reportaba en
+    // viewers que recortan el borde físico del papel.
+    // desc=195 | qty=45 | price=85 | disc=55 | sub=110 = 490
+    const cols = { desc: 55, qty: 250, price: 295, disc: 380, sub: 435 };
+    const widths = { desc: 195, qty: 45, price: 85, disc: 55, sub: 110 };
 
-    doc.rect(50, startY, 495, 24).fill(PRIMARY);
+    doc.rect(55, startY, 490, 24).fill(PRIMARY);
     doc.fontSize(9).fillColor(WHITE).font('Helvetica-Bold');
     doc.text('PRODUCTO', cols.desc + 5, startY + 7, { width: widths.desc - 5 });
     doc.text('CANT.', cols.qty, startY + 7, { width: widths.qty, align: 'center' });
@@ -486,7 +492,7 @@ export class PdfService {
     for (let i = 0; i < (sale.items || []).length; i++) {
       const item = sale.items[i];
       const bg = i % 2 === 0 ? WHITE : LIGHT_GRAY;
-      doc.rect(50, rowY, 495, 22).fill(bg);
+      doc.rect(55, rowY, 490, 22).fill(bg);
       doc.fillColor(DARK);
       doc.text(item.product_name || '', cols.desc + 5, rowY + 6, {
         width: widths.desc - 5, ellipsis: true, lineBreak: false,
@@ -498,8 +504,7 @@ export class PdfService {
       rowY += 22;
     }
 
-    // Border
-    doc.rect(50, startY, 495, rowY - startY).stroke('#E2E8F0');
+    doc.rect(55, startY, 490, rowY - startY).stroke('#E2E8F0');
     doc.y = rowY + 10;
   }
 
@@ -542,15 +547,18 @@ export class PdfService {
   }
 
   private drawQuotationMeta(doc: any, quotation: Quotation) {
+    // En el PDF impreso/exportado el estado "DRAFT" se muestra como
+    // "EMITIDA" en verde — el documento que llega al cliente no debe verse
+    // como un borrador interno. El estado real sigue siendo DRAFT en DB.
     const STATUS_COLORS: Record<string, string> = {
-      DRAFT: '#64748B',
+      DRAFT: '#16A34A',
       SENT: '#2563EB',
       ACCEPTED: '#16A34A',
       REJECTED: '#DC2626',
       EXPIRED: '#D97706',
     };
     const STATUS_LABELS: Record<string, string> = {
-      DRAFT: 'BORRADOR',
+      DRAFT: 'EMITIDA',
       SENT: 'ENVIADA',
       ACCEPTED: 'ACEPTADA',
       REJECTED: 'RECHAZADA',
@@ -581,24 +589,24 @@ export class PdfService {
 
   private drawQuotationCustomerBlock(doc: any, quotation: Quotation) {
     const y = doc.y + 5;
-    doc.rect(50, y, 320, 80).fill(LIGHT_GRAY).stroke('#E2E8F0');
-    doc.fontSize(9).fillColor(MID_GRAY).font('Helvetica-Bold').text('COTIZAR A', 62, y + 10);
-    doc.fontSize(12).fillColor(DARK).font('Helvetica-Bold').text(quotation.customer?.name || '', 62, y + 24);
+    doc.rect(55, y, 315, 80).fill(LIGHT_GRAY).stroke('#E2E8F0');
+    doc.fontSize(9).fillColor(MID_GRAY).font('Helvetica-Bold').text('COTIZAR A', 67, y + 10);
+    doc.fontSize(12).fillColor(DARK).font('Helvetica-Bold').text(quotation.customer?.name || '', 67, y + 24);
     doc.fontSize(9).fillColor(DARK).font('Helvetica');
-    if (quotation.customer?.document_number) doc.text(`ID: ${quotation.customer.document_number}`, 62, y + 42);
-    if (quotation.customer?.email) doc.text(quotation.customer.email, 62, y + 54);
-    if (quotation.customer?.phone) doc.text(quotation.customer.phone, 62, y + 66);
+    if (quotation.customer?.document_number) doc.text(`ID: ${quotation.customer.document_number}`, 67, y + 42);
+    if (quotation.customer?.email) doc.text(quotation.customer.email, 67, y + 54);
+    if (quotation.customer?.phone) doc.text(quotation.customer.phone, 67, y + 66);
     doc.y = y + 95;
   }
 
   private drawQuotationItemsTable(doc: any, quotation: Quotation) {
     const startY = doc.y;
-    // Layout: desc=175 | unit=40 | qty=40 | price=85 | disc=50 | sub=105 = 495
-    // Más holgura en P.UNIT y SUBTOTAL para que importes en COP no se corten.
-    const cols = { desc: 50, unit: 225, qty: 265, price: 305, disc: 390, sub: 440 };
-    const widths = { desc: 175, unit: 40, qty: 40, price: 85, disc: 50, sub: 105 };
+    // Movido a x=55 (antes 50) por desbordamiento reportado en visores que
+    // recortan el borde físico. Sum widths: 170+40+40+85+50+105 = 490.
+    const cols = { desc: 55, unit: 225, qty: 265, price: 305, disc: 390, sub: 440 };
+    const widths = { desc: 170, unit: 40, qty: 40, price: 85, disc: 50, sub: 105 };
 
-    doc.rect(50, startY, 495, 24).fill(PRIMARY);
+    doc.rect(55, startY, 490, 24).fill(PRIMARY);
     doc.fontSize(8.5).fillColor(WHITE).font('Helvetica-Bold');
     doc.text('DESCRIPCIÓN / SERVICIO', cols.desc + 5, startY + 7, { width: widths.desc - 5 });
     doc.text('UNIDAD', cols.unit, startY + 7, { width: widths.unit, align: 'center' });
@@ -614,7 +622,7 @@ export class PdfService {
       const item = quotation.items[i];
       const bg = i % 2 === 0 ? WHITE : LIGHT_GRAY;
       const rowH = 22;
-      doc.rect(50, rowY, 495, rowH).fill(bg);
+      doc.rect(55, rowY, 490, rowH).fill(bg);
       doc.fillColor(DARK);
       doc.text(item.description || '', cols.desc + 5, rowY + 6, {
         width: widths.desc - 5, ellipsis: true, lineBreak: false,
@@ -627,7 +635,7 @@ export class PdfService {
       rowY += rowH;
     }
 
-    doc.rect(50, startY, 495, rowY - startY).stroke('#E2E8F0');
+    doc.rect(55, startY, 490, rowY - startY).stroke('#E2E8F0');
     doc.y = rowY + 10;
   }
 
@@ -762,13 +770,15 @@ export class PdfService {
 
   // ─── Remission helpers ─────────────────────────────────────────────────────
   private drawRemissionMeta(doc: any, remission: Remission) {
+    // Mismo criterio que cotizaciones: el PDF que se descarga/envía nunca
+    // debe verse como "borrador" para el cliente final.
     const STATUS_COLORS: Record<string, string> = {
-      DRAFT: '#64748B',
+      DRAFT: '#16A34A',
       ISSUED: '#16A34A',
       CANCELED: '#DC2626',
     };
     const STATUS_LABELS: Record<string, string> = {
-      DRAFT: 'BORRADOR',
+      DRAFT: 'EMITIDA',
       ISSUED: 'EMITIDA',
       CANCELED: 'CANCELADA',
     };
@@ -798,19 +808,19 @@ export class PdfService {
 
   private drawRemissionCustomerBlock(doc: any, remission: Remission) {
     const y = doc.y + 5;
-    doc.rect(50, y, 320, 80).fill(LIGHT_GRAY).stroke('#E2E8F0');
-    const textW = 320 - 24;
+    doc.rect(55, y, 315, 80).fill(LIGHT_GRAY).stroke('#E2E8F0');
+    const textW = 315 - 24;
     doc.fontSize(9).fillColor(MID_GRAY).font('Helvetica-Bold')
-      .text('ENTREGAR A', 62, y + 10, { width: textW });
+      .text('ENTREGAR A', 67, y + 10, { width: textW });
     doc.fontSize(12).fillColor(DARK).font('Helvetica-Bold')
-      .text(remission.customer?.name || '', 62, y + 24, { width: textW, ellipsis: true, lineBreak: false });
+      .text(remission.customer?.name || '', 67, y + 24, { width: textW, ellipsis: true, lineBreak: false });
     doc.fontSize(9).fillColor(DARK).font('Helvetica');
     if (remission.customer?.document_number)
-      doc.text(`ID: ${remission.customer.document_number}`, 62, y + 42, { width: textW, ellipsis: true, lineBreak: false });
+      doc.text(`ID: ${remission.customer.document_number}`, 67, y + 42, { width: textW, ellipsis: true, lineBreak: false });
     if (remission.customer?.address)
-      doc.text(remission.customer.address, 62, y + 54, { width: textW, ellipsis: true, lineBreak: false });
+      doc.text(remission.customer.address, 67, y + 54, { width: textW, ellipsis: true, lineBreak: false });
     if (remission.customer?.phone)
-      doc.text(remission.customer.phone, 62, y + 66, { width: textW, ellipsis: true, lineBreak: false });
+      doc.text(remission.customer.phone, 67, y + 66, { width: textW, ellipsis: true, lineBreak: false });
 
     doc.y = y + 95;
   }
@@ -818,18 +828,18 @@ export class PdfService {
   private drawRemissionItemsTable(doc: any, remission: Remission) {
     const startY = doc.y;
     const showPrices = (remission.items || []).some((i) => Number(i.unit_price) > 0);
-    // Width budget 495. Mismo criterio: dejar más espacio a precios para que
-    // los importes en COP no se desborden.
-    // Con precios: desc=210 | unit=45 | qty=45 | price=85 | sub=110 = 495
-    // Sin precios: desc=345 | unit=70 | qty=80 = 495
+    // Width budget 490 (antes 495). Movido x de 50 a 55 por desbordamiento
+    // izquierdo reportado.
+    // Con precios: desc=205 | unit=45 | qty=45 | price=85 | sub=110 = 490
+    // Sin precios: desc=340 | unit=70 | qty=80 = 490
     const cols = showPrices
-      ? { desc: 50, unit: 260, qty: 305, price: 350, sub: 435 }
-      : { desc: 50, unit: 395, qty: 465, price: 0, sub: 0 };
+      ? { desc: 55, unit: 260, qty: 305, price: 350, sub: 435 }
+      : { desc: 55, unit: 395, qty: 465, price: 0, sub: 0 };
     const widths = showPrices
-      ? { desc: 210, unit: 45, qty: 45, price: 85, sub: 110 }
-      : { desc: 345, unit: 70, qty: 80, price: 0, sub: 0 };
+      ? { desc: 205, unit: 45, qty: 45, price: 85, sub: 110 }
+      : { desc: 340, unit: 70, qty: 80, price: 0, sub: 0 };
 
-    doc.rect(50, startY, 495, 24).fill(PRIMARY);
+    doc.rect(55, startY, 490, 24).fill(PRIMARY);
     doc.fontSize(9).fillColor(WHITE).font('Helvetica-Bold');
     doc.text('PRODUCTO / DESCRIPCIÓN', cols.desc + 5, startY + 7, { width: widths.desc - 5 });
     doc.text('UNIDAD', cols.unit, startY + 7, { width: widths.unit, align: 'center' });
@@ -845,7 +855,7 @@ export class PdfService {
     for (let i = 0; i < (remission.items || []).length; i++) {
       const item = remission.items[i];
       const bg = i % 2 === 0 ? WHITE : LIGHT_GRAY;
-      doc.rect(50, rowY, 495, 22).fill(bg);
+      doc.rect(55, rowY, 490, 22).fill(bg);
       doc.fillColor(DARK);
       const label = item.description
         ? `${item.product_name} — ${item.description}`
@@ -860,14 +870,14 @@ export class PdfService {
       rowY += 22;
     }
 
-    doc.rect(50, startY, 495, rowY - startY).stroke('#E2E8F0');
+    doc.rect(55, startY, 490, rowY - startY).stroke('#E2E8F0');
     doc.y = rowY + 10;
   }
 
   private drawRemissionFooterNote(doc: any, remission: Remission) {
     if (remission.description) {
-      doc.fontSize(9).fillColor(MID_GRAY).font('Helvetica-Bold').text('OBSERVACIONES', 50, doc.y + 10);
-      doc.fontSize(9).fillColor(DARK).font('Helvetica').text(remission.description, 50, doc.y + 4, { width: 495 });
+      doc.fontSize(9).fillColor(MID_GRAY).font('Helvetica-Bold').text('OBSERVACIONES', 55, doc.y + 10);
+      doc.fontSize(9).fillColor(DARK).font('Helvetica').text(remission.description, 55, doc.y + 4, { width: 490 });
     }
 
     // Bloque de firmas (estándar en remisiones)

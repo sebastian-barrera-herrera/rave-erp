@@ -69,6 +69,12 @@ export class DebtsService {
   }
 
   async getSummary(companyId: string) {
+    // `overdue_count` se calcula dinámicamente con `due_date < NOW()` en lugar
+    // de leer `status = 'OVERDUE'`. La columna `status` solo se actualiza
+    // cuando alguien corre `markOverdue()` manualmente, así que basarse en
+    // ella dejaba el indicador en cero hasta que se ejecutara ese job.
+    // Calcular en vivo es consistente con cómo el listado filtra por
+    // `overdue_only` (también compara `due_date < NOW()`).
     const result = await this.debtRepo
       .createQueryBuilder('d')
       .select([
@@ -77,8 +83,20 @@ export class DebtsService {
         'SUM(d.remaining_amount) AS remaining_amount',
         'COUNT(*) AS total_debts',
         `SUM(CASE WHEN d.status = 'PAID' THEN 1 ELSE 0 END) AS paid_count`,
-        `SUM(CASE WHEN d.status = 'PENDING' THEN 1 ELSE 0 END) AS pending_count`,
-        `SUM(CASE WHEN d.status = 'OVERDUE' THEN 1 ELSE 0 END) AS overdue_count`,
+        `SUM(CASE
+            WHEN d.status != 'PAID'
+             AND (d.due_date IS NULL OR d.due_date >= NOW())
+            THEN 1 ELSE 0 END) AS pending_count`,
+        `SUM(CASE
+            WHEN d.status != 'PAID'
+             AND d.due_date IS NOT NULL
+             AND d.due_date < NOW()
+            THEN 1 ELSE 0 END) AS overdue_count`,
+        `COALESCE(SUM(CASE
+            WHEN d.status != 'PAID'
+             AND d.due_date IS NOT NULL
+             AND d.due_date < NOW()
+            THEN d.remaining_amount ELSE 0 END), 0) AS overdue_amount`,
       ])
       .where('d.company_id = :companyId', { companyId })
       .andWhere('d.deleted_at IS NULL')

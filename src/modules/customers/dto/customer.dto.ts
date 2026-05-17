@@ -52,6 +52,14 @@ export class CreateCustomerDto {
   @IsOptional() @IsString()
   address?: string;
 
+  @ApiPropertyOptional({ example: 'Cundinamarca', description: 'Departamento / provincia / estado' })
+  @IsOptional() @IsString()
+  state?: string;
+
+  @ApiPropertyOptional({ example: 'Bogotá', description: 'Municipio / ciudad' })
+  @IsOptional() @IsString()
+  city?: string;
+
   @ApiPropertyOptional({ example: '1.012.345.678' })
   @IsOptional() @IsString()
   document_number?: string;
@@ -79,6 +87,12 @@ export class UpdateCustomerDto {
 
   @ApiPropertyOptional() @IsOptional() @IsString()
   address?: string;
+
+  @ApiPropertyOptional() @IsOptional() @IsString()
+  state?: string;
+
+  @ApiPropertyOptional() @IsOptional() @IsString()
+  city?: string;
 
   @ApiPropertyOptional() @IsOptional() @IsString()
   document_number?: string;

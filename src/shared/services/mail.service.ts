@@ -1,24 +1,98 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as nodemailer from 'nodemailer';
 
 @Injectable()
-export class MailService {
+export class MailService implements OnModuleInit {
   private transporter: nodemailer.Transporter;
   private readonly logger = new Logger(MailService.name);
   private readonly from: string;
+  private readonly host?: string;
+  private readonly port: number;
+  private readonly user?: string;
+  private readonly mailFrom?: string;
+  private lastVerify: { ok: boolean; error?: string; checked_at: string } | null = null;
 
   constructor(private readonly configService: ConfigService) {
+    this.host = configService.get<string>('SMTP_HOST');
+    this.port = configService.get<number>('SMTP_PORT', 587);
+    this.user = configService.get<string>('SMTP_USER');
+    const pass = configService.get<string>('SMTP_PASS');
+    this.mailFrom = configService.get<string>('MAIL_FROM');
+
     this.transporter = nodemailer.createTransport({
-      host: configService.get('SMTP_HOST'),
-      port: configService.get<number>('SMTP_PORT', 587),
-      secure: false,
-      auth: {
-        user: configService.get('SMTP_USER'),
-        pass: configService.get('SMTP_PASS'),
-      },
+      host: this.host,
+      port: this.port,
+      secure: this.port === 465,
+      auth: this.user && pass ? { user: this.user, pass } : undefined,
+      // Timeouts cortos para que no se cuelgue una request si el SMTP está caído.
+      connectionTimeout: 10_000,
+      greetingTimeout: 10_000,
+      socketTimeout: 15_000,
     });
-    this.from = `"${configService.get('MAIL_FROM_NAME', 'ERP SaaS')}" <${configService.get('MAIL_FROM')}>`;
+    this.from = `"${configService.get('MAIL_FROM_NAME', 'ERP SaaS')}" <${this.mailFrom}>`;
+  }
+
+  async onModuleInit() {
+    // Verificación no-bloqueante al iniciar — si SMTP no responde se logguea
+    // ruidosamente para que el operador lo vea en Render sin tener que esperar
+    // a que un usuario reporte que "no llegan correos".
+    const missing = this.missingConfig();
+    if (missing.length) {
+      this.logger.error(`SMTP no configurado. Faltan env vars: ${missing.join(', ')}`);
+      this.lastVerify = { ok: false, error: `missing_env:${missing.join(',')}`, checked_at: new Date().toISOString() };
+      return;
+    }
+    try {
+      await this.transporter.verify();
+      this.lastVerify = { ok: true, checked_at: new Date().toISOString() };
+      this.logger.log(`SMTP OK → ${this.host}:${this.port} (from ${this.mailFrom})`);
+    } catch (err: unknown) {
+      const message = this.getErrorMessage(err);
+      this.lastVerify = { ok: false, error: message, checked_at: new Date().toISOString() };
+      this.logger.error(`SMTP verify falló → ${this.host}:${this.port}: ${message}`);
+    }
+  }
+
+  /**
+   * Estado pública del último verify SMTP. Usado por /health/smtp para
+   * diagnóstico desde producción sin acceder a logs de Render.
+   */
+  async checkConnection() {
+    const missing = this.missingConfig();
+    if (missing.length) {
+      return { ok: false, error: `missing_env:${missing.join(',')}`, checked_at: new Date().toISOString() };
+    }
+    try {
+      await this.transporter.verify();
+      const result = { ok: true, checked_at: new Date().toISOString() };
+      this.lastVerify = result;
+      return result;
+    } catch (err: unknown) {
+      const result = { ok: false, error: this.getErrorMessage(err), checked_at: new Date().toISOString() };
+      this.lastVerify = result;
+      return result;
+    }
+  }
+
+  getStatus() {
+    return {
+      configured: this.missingConfig().length === 0,
+      host: this.host ?? null,
+      port: this.port,
+      user_set: !!this.user,
+      from: this.mailFrom ?? null,
+      last_verify: this.lastVerify,
+    };
+  }
+
+  private missingConfig(): string[] {
+    const missing: string[] = [];
+    if (!this.host) missing.push('SMTP_HOST');
+    if (!this.user) missing.push('SMTP_USER');
+    if (!this.configService.get('SMTP_PASS')) missing.push('SMTP_PASS');
+    if (!this.mailFrom) missing.push('MAIL_FROM');
+    return missing;
   }
 
   async sendWelcome(to: string, name: string, companyName: string, trialDays: number) {
@@ -342,6 +416,31 @@ export class MailService {
          style="background:#16A34A;color:white;padding:12px 24px;border-radius:6px;text-decoration:none;display:inline-block;">
         Ir al dashboard
       </a>
+    `));
+  }
+
+  /**
+   * Email de recuperación de contraseña. Incluye un link al frontend con el
+   * token plano embebido. El token expira en `expiresAt`.
+   */
+  async sendPasswordReset(to: string, userName: string, tokenPlain: string, expiresAt: Date) {
+    const link = `${this.configService.get('FRONTEND_URL')}/reset-password/${tokenPlain}`;
+    const minutes = Math.max(1, Math.round((expiresAt.getTime() - Date.now()) / 60000));
+    return this.send(to, 'Recupera tu contraseña', this.wrap(`
+      <h2>Hola ${userName},</h2>
+      <p>Recibimos una solicitud para restablecer tu contraseña en ERP SaaS.</p>
+      <p>Haz click en el botón para crear una contraseña nueva. El enlace
+        es válido por <strong>${minutes} minutos</strong>.</p>
+      <a href="${link}"
+         style="background:#2563EB;color:white;padding:12px 24px;border-radius:6px;text-decoration:none;display:inline-block;margin:16px 0;">
+        Restablecer contraseña
+      </a>
+      <p style="font-size:13px;color:#64748B;">
+        Si no fuiste tú, ignora este correo. Tu contraseña actual seguirá funcionando.
+      </p>
+      <p style="font-size:12px;color:#94A3B8;margin-top:24px;word-break:break-all;">
+        ¿El botón no funciona? Copia este enlace en tu navegador:<br>${link}
+      </p>
     `));
   }
 

@@ -73,6 +73,14 @@ export class User {
   @Exclude()
   refresh_token_hash!: string;
 
+  @Column({ nullable: true })
+  @Exclude()
+  password_reset_token_hash!: string | null;
+
+  @Column({ nullable: true, type: 'timestamp' })
+  @Exclude()
+  password_reset_expires_at!: Date | null;
+
   @CreateDateColumn()
   created_at!: Date;
 

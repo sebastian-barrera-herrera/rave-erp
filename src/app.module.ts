@@ -117,6 +117,9 @@ export class AppModule {
         { path: 'api/subscriptions/webhook', method: RequestMethod.POST },
         { path: 'api/wompi/webhook', method: RequestMethod.POST },
         { path: 'api/health', method: RequestMethod.GET },
+        { path: 'api/health/(.*)', method: RequestMethod.GET },
+        { path: 'api/auth/forgot-password', method: RequestMethod.POST },
+        { path: 'api/auth/reset-password', method: RequestMethod.POST },
         { path: 'api/docs', method: RequestMethod.GET },
         { path: 'api/docs/(.*)', method: RequestMethod.GET },
       )

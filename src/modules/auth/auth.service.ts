@@ -12,7 +12,10 @@ import { Company } from '../companies/entities/company.entity';
 import { User } from '../users/entities/user.entity';
 import { CustomRole } from '../roles/entities/custom-role.entity';
 import { Invitation } from './entities/invitation.entity';
-import { RegisterDto, LoginDto, RefreshTokenDto, ChangePasswordDto } from './dto/auth.dto';
+import {
+  RegisterDto, LoginDto, RefreshTokenDto, ChangePasswordDto,
+  ForgotPasswordDto, ResetPasswordDto,
+} from './dto/auth.dto';
 import { AcceptInvitationDto } from './dto/invitation.dto';
 import {
   UserRole, SubscriptionStatus, ROLE_PERMISSIONS, Permission,
@@ -48,22 +51,26 @@ export class AuthService {
     });
     if (existingCompany) throw new ConflictException('Ya existe una empresa con ese email');
 
-    return this.dataSource.transaction(async (manager) => {
-      const trialDays = this.configService.get<number>("3", 3);
-      const trialEndsAt = new Date();
-      trialEndsAt.setDate(trialEndsAt.getDate() + trialDays);
+    const trialDays = this.configService.get<number>('STRIPE_TRIAL_DAYS', 3);
+    const trialEndsAt = new Date();
+    trialEndsAt.setDate(trialEndsAt.getDate() + trialDays);
 
-      // Build URL-safe slug from company name
-      const slug = dto.company_name
-        .toLowerCase()
-        .replace(/\s+/g, '-')
-        .replace(/[^a-z0-9-]/g, '')
-        .substring(0, 80) + '-' + Date.now();
+    const slug = dto.company_name
+      .toLowerCase()
+      .replace(/\s+/g, '-')
+      .replace(/[^a-z0-9-]/g, '')
+      .substring(0, 80) + '-' + Date.now();
 
-      // Si el admin pasó country, derivamos defaults (los explícitos ganan).
-      const countryDefaults = getCountrySettings(dto.country);
+    const countryDefaults = getCountrySettings(dto.country);
 
-      // Create company
+    // bcrypt fuera de la transacción: es CPU-bound (~200ms) y mantenerlo
+    // dentro alarga el lock sin necesidad.
+    const passwordHash = await bcrypt.hash(dto.admin_password, 12);
+
+    // Transacción mínima: solo lo verdaderamente atómico (company + user).
+    // Stripe, tokens y email salen porque son lentos/externos y bloqueaban
+    // la conexión causando el "se queda cargando y arroja error" reportado.
+    const { user, company } = await this.dataSource.transaction(async (manager) => {
       const company = manager.create(Company, {
         name: dto.company_name,
         email: dto.company_email,
@@ -81,22 +88,6 @@ export class AuthService {
       });
       await manager.save(company);
 
-      // Create Stripe customer
-      try {
-        const stripeCustomer = await this.stripeService.createCustomer(
-          company.name,
-          company.email,
-        );
-        company.stripe_customer_id = stripeCustomer.id;
-        await manager.save(company);
-      } catch (err) {
-        this.logger.warn(`Stripe customer creation failed: ${err instanceof Error ? err.message : String(err)}`);
-      }
-
-      // Hash password
-      const passwordHash = await bcrypt.hash(dto.admin_password, 12);
-
-      // Create admin user
       const user = manager.create(User, {
         company_id: company.id,
         name: dto.admin_name,
@@ -108,14 +99,29 @@ export class AuthService {
       });
       await manager.save(user);
 
-      // Send welcome email (non-blocking)
-      this.mailService
-        .sendWelcome(dto.admin_email, dto.admin_name, company.name, trialDays)
-        .catch((e) => this.logger.warn(`Welcome email failed: ${e.message}`));
-
-      const tokens = await this.generateTokens(user, company);
-      return { user: this.sanitizeUser(user), company, tokens };
+      return { user, company };
     });
+
+    // Stripe customer: best-effort post-commit. Si falla, el usuario ya está
+    // creado y puede activar Stripe luego al pagar.
+    this.stripeService
+      .createCustomer(company.name, company.email)
+      .then((customer) =>
+        this.companyRepo.update(company.id, { stripe_customer_id: customer.id }),
+      )
+      .catch((err) =>
+        this.logger.warn(
+          `Stripe customer creation failed for ${company.email}: ${err instanceof Error ? err.message : String(err)}`,
+        ),
+      );
+
+    // Email de bienvenida: non-blocking, después del commit.
+    this.mailService
+      .sendWelcome(dto.admin_email, dto.admin_name, company.name, trialDays)
+      .catch((e) => this.logger.warn(`Welcome email failed: ${e.message}`));
+
+    const tokens = await this.generateTokens(user, company);
+    return { user: this.sanitizeUser(user), company, tokens };
   }
 
   async login(dto: LoginDto) {
@@ -176,6 +182,82 @@ export class AuthService {
   async logout(userId: string) {
     await this.userRepo.update(userId, { refresh_token_hash: undefined });
     return { message: 'Sesión cerrada correctamente' };
+  }
+
+  /**
+   * Inicia el flujo de recuperación. Por seguridad SIEMPRE retorna el mismo
+   * mensaje, independientemente de si el email existe — así no exponemos qué
+   * cuentas están registradas (enumeration attack).
+   *
+   * Genera un token plano de 32 bytes, guarda solo el hash SHA-256 y envía
+   * el plano por email. Expira en 1h.
+   */
+  async forgotPassword(dto: ForgotPasswordDto) {
+    const user = await this.userRepo.findOne({
+      where: { email: dto.email },
+      relations: ['company'],
+    });
+
+    // Respuesta uniforme para no filtrar existencia de cuenta.
+    const genericResponse = {
+      message: 'Si el correo está registrado, recibirás un email con instrucciones.',
+    };
+
+    if (!user || !user.is_active) return genericResponse;
+
+    const tokenPlain = crypto.randomBytes(32).toString('hex');
+    const tokenHash = crypto.createHash('sha256').update(tokenPlain).digest('hex');
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hora
+
+    user.password_reset_token_hash = tokenHash;
+    user.password_reset_expires_at = expiresAt;
+    await this.userRepo.save(user);
+
+    // Email no-bloqueante: si SMTP está caído, el endpoint responde igual y
+    // los logs muestran el fallo. No queremos colgar al usuario por SMTP.
+    this.mailService
+      .sendPasswordReset(user.email, user.name, tokenPlain, expiresAt)
+      .catch((e) =>
+        this.logger.error(`Password reset email failed for ${user.email}: ${e.message}`),
+      );
+
+    return genericResponse;
+  }
+
+  /**
+   * Valida el token, lo invalida (se usa una sola vez) y actualiza el hash
+   * de la contraseña. También limpia el refresh_token_hash para forzar
+   * re-login en otras sesiones abiertas.
+   */
+  async resetPassword(dto: ResetPasswordDto) {
+    if (!dto.token || dto.token.length < 32) {
+      throw new BadRequestException('Token de recuperación inválido');
+    }
+
+    const tokenHash = crypto.createHash('sha256').update(dto.token).digest('hex');
+    const user = await this.userRepo.findOne({
+      where: { password_reset_token_hash: tokenHash },
+    });
+
+    if (!user) {
+      throw new BadRequestException('Token inválido o ya utilizado');
+    }
+    if (!user.password_reset_expires_at || user.password_reset_expires_at.getTime() < Date.now()) {
+      // Limpiamos el token vencido para que un siguiente intento no siga
+      // viéndolo como "ya utilizado".
+      user.password_reset_token_hash = null;
+      user.password_reset_expires_at = null;
+      await this.userRepo.save(user);
+      throw new BadRequestException('El enlace de recuperación expiró. Solicita uno nuevo.');
+    }
+
+    user.password_hash = await bcrypt.hash(dto.new_password, 12);
+    user.password_reset_token_hash = null;
+    user.password_reset_expires_at = null;
+    user.refresh_token_hash = undefined as any; // invalida sesiones existentes
+    await this.userRepo.save(user);
+
+    return { message: 'Contraseña actualizada. Inicia sesión con tu nueva contraseña.' };
   }
 
   async changePassword(userId: string, dto: ChangePasswordDto) {

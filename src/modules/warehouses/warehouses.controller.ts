@@ -11,7 +11,7 @@ import {
 import { WarehousesService } from './warehouses.service';
 import {
   CreateWarehouseDto, UpdateWarehouseDto,
-  AdjustWarehouseStockDto, TransferStockDto,
+  AdjustWarehouseStockDto, TransferStockDto, BulkTransferStockDto,
 } from './dto/warehouse.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
@@ -116,6 +116,22 @@ export class WarehousesController {
     @CurrentUser() user: any,
   ) {
     return this.warehousesService.transfer(dto, company.id, user.id);
+  }
+
+  @Post('transfer/bulk')
+  @Permissions(Permission.WAREHOUSES_MANAGE)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Transferir varios productos entre bodegas en una sola operación',
+    description: 'Atómico: si cualquier producto falla, se revierte todo.',
+  })
+  @ApiBody({ type: BulkTransferStockDto })
+  transferBulk(
+    @Body() dto: BulkTransferStockDto,
+    @CurrentCompany() company: Company,
+    @CurrentUser() user: any,
+  ) {
+    return this.warehousesService.transferBulk(dto, company.id, user.id);
   }
 
   @Delete(':id')
