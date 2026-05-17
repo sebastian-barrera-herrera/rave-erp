@@ -14,12 +14,14 @@ import { Controller, Get, HttpCode, HttpStatus } from '@nestjs/common';
 import { ApiExcludeController } from '@nestjs/swagger';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
+import { MailService } from '../shared/services/mail.service';
 
 @ApiExcludeController()
 @Controller('health')
 export class HealthController {
   constructor(
     @InjectDataSource() private readonly dataSource: DataSource,
+    private readonly mailService: MailService,
   ) {}
 
   @Get()
@@ -65,5 +67,19 @@ export class HealthController {
       response_ms: Date.now() - startedAt,
       timestamp: new Date().toISOString(),
     };
+  }
+
+  /**
+   * Diagnóstico de SMTP — útil cuando los correos no llegan y necesitamos
+   * saber rápido si es problema de config, credenciales o red.
+   * Retorna 200 con `ok:false` si está roto (no 5xx) para que el endpoint
+   * no se vea como "servidor caído" en monitoreo.
+   */
+  @Get('smtp')
+  @HttpCode(HttpStatus.OK)
+  async smtp() {
+    const status = this.mailService.getStatus();
+    const verify = await this.mailService.checkConnection();
+    return { status, verify };
   }
 }

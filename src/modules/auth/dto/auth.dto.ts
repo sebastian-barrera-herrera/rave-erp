@@ -99,3 +99,21 @@ export class ChangePasswordDto {
   @IsString() @MinLength(8)
   new_password: string;
 }
+
+/** Body para solicitar email de recuperación de contraseña (no requiere auth). */
+export class ForgotPasswordDto {
+  @ApiProperty({ example: 'sebastian@distribuidora-elsol.com' })
+  @IsEmail()
+  email: string;
+}
+
+/** Body para fijar una nueva contraseña usando el token recibido por email. */
+export class ResetPasswordDto {
+  @ApiProperty({ example: 'a1b2c3d4...', description: 'Token recibido en el email de recuperación' })
+  @IsString()
+  token: string;
+
+  @ApiProperty({ example: 'P@ssw0rdNueva456', minLength: 8 })
+  @IsString() @MinLength(8)
+  new_password: string;
+}

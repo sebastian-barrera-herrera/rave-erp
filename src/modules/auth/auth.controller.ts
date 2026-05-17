@@ -11,7 +11,10 @@ import {
   ApiTags, ApiOperation, ApiBearerAuth, ApiBody, ApiResponse, ApiParam,
 } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
-import { RegisterDto, LoginDto, RefreshTokenDto, ChangePasswordDto } from './dto/auth.dto';
+import {
+  RegisterDto, LoginDto, RefreshTokenDto, ChangePasswordDto,
+  ForgotPasswordDto, ResetPasswordDto,
+} from './dto/auth.dto';
 import { AcceptInvitationDto } from './dto/invitation.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/user.decorator';
@@ -172,5 +175,34 @@ export class AuthController {
   @ApiResponse({ status: 400, description: 'La contraseña actual no coincide' })
   changePassword(@CurrentUser() user: any, @Body() dto: ChangePasswordDto) {
     return this.authService.changePassword(user.id, dto);
+  }
+
+  @Post('forgot-password')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Solicitar email de recuperación de contraseña',
+    description:
+      'Endpoint público. Siempre responde 200 con el mismo mensaje, exista o '
+      + 'no el email, para no permitir enumeración de cuentas.',
+  })
+  @ApiBody({ type: ForgotPasswordDto })
+  @ApiResponse({ status: 200, description: 'Petición recibida (no confirma existencia del email)' })
+  forgotPassword(@Body() dto: ForgotPasswordDto) {
+    return this.authService.forgotPassword(dto);
+  }
+
+  @Post('reset-password')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Fijar nueva contraseña usando un token de recuperación',
+    description:
+      'Endpoint público. Consume el token (de un solo uso), guarda la nueva '
+      + 'contraseña y revoca refresh tokens existentes.',
+  })
+  @ApiBody({ type: ResetPasswordDto })
+  @ApiResponse({ status: 200, description: 'Contraseña actualizada' })
+  @ApiResponse({ status: 400, description: 'Token inválido o vencido' })
+  resetPassword(@Body() dto: ResetPasswordDto) {
+    return this.authService.resetPassword(dto);
   }
 }
