@@ -158,6 +158,87 @@ export class ReportsController {
     return this.reportsService.getInventoryReport(company.id);
   }
 
+  @Get('top-suppliers')
+  @Permissions(Permission.REPORTS_VIEW)
+  @ApiOperation({
+    summary: 'Ranking de proveedores',
+    description:
+      'Lista proveedores ordenados por valor de inventario que surten. ' +
+      'Incluye `category_list` para detectar concentración por categoría.',
+  })
+  @ApiQuery({ name: 'limit', required: false, example: 20 })
+  getTopSuppliers(
+    @CurrentCompany() company: Company,
+    @Query('limit') limit?: number,
+  ) {
+    return this.reportsService.getTopSuppliers(company.id, limit || 20);
+  }
+
+  @Get('supplier-price-comparison')
+  @Permissions(Permission.REPORTS_VIEW)
+  @ApiOperation({
+    summary: 'Comparativa de precios por categoría entre proveedores',
+    description:
+      'Por cada categoría devuelve el costo promedio, mínimo y máximo de ' +
+      'cada proveedor. Sirve para identificar quién ofrece mejor precio.',
+  })
+  getSupplierPriceComparison(@CurrentCompany() company: Company) {
+    return this.reportsService.getSupplierPriceComparison(company.id);
+  }
+
+  @Get('top-service-workers')
+  @Permissions(Permission.REPORTS_VIEW)
+  @ApiOperation({ summary: 'Ranking de trabajadores por servicios prestados' })
+  @ApiQuery({ name: 'date_from', required: false })
+  @ApiQuery({ name: 'date_to', required: false })
+  @ApiQuery({ name: 'limit', required: false, example: 20 })
+  getTopServiceWorkers(
+    @CurrentCompany() company: Company,
+    @Query('date_from') dateFrom: string,
+    @Query('date_to') dateTo: string,
+    @Query('limit') limit?: number,
+  ) {
+    const now = new Date();
+    const from = dateFrom
+      || new Date(now.getFullYear() - 1, now.getMonth(), now.getDate()).toISOString();
+    const to = dateTo || now.toISOString();
+    return this.reportsService.getTopServiceWorkers(company.id, from, to, limit || 20);
+  }
+
+  @Get('services-summary')
+  @Permissions(Permission.REPORTS_VIEW)
+  @ApiOperation({ summary: 'Resumen agregado de servicios prestados (por tipo y categoría)' })
+  @ApiQuery({ name: 'date_from', required: false })
+  @ApiQuery({ name: 'date_to', required: false })
+  getServicesSummary(
+    @CurrentCompany() company: Company,
+    @Query('date_from') dateFrom: string,
+    @Query('date_to') dateTo: string,
+  ) {
+    const now = new Date();
+    const from = dateFrom
+      || new Date(now.getFullYear() - 1, now.getMonth(), now.getDate()).toISOString();
+    const to = dateTo || now.toISOString();
+    return this.reportsService.getServicesSummary(company.id, from, to);
+  }
+
+  @Get('returns-summary')
+  @Permissions(Permission.REPORTS_VIEW)
+  @ApiOperation({ summary: 'Resumen de devoluciones y averías' })
+  @ApiQuery({ name: 'date_from', required: false })
+  @ApiQuery({ name: 'date_to', required: false })
+  getReturnsSummary(
+    @CurrentCompany() company: Company,
+    @Query('date_from') dateFrom: string,
+    @Query('date_to') dateTo: string,
+  ) {
+    const now = new Date();
+    const from = dateFrom
+      || new Date(now.getFullYear() - 1, now.getMonth(), now.getDate()).toISOString();
+    const to = dateTo || now.toISOString();
+    return this.reportsService.getReturnsSummary(company.id, from, to);
+  }
+
   @Get('inventory/pdf')
   @Permissions(Permission.REPORTS_EXPORT)
   @ApiOperation({ summary: 'Exportar reporte de inventario en PDF' })

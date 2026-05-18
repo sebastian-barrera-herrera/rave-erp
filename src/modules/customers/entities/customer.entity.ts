@@ -5,6 +5,7 @@ import {
 import { Company } from '../../companies/entities/company.entity';
 import { Sale } from '../../sales/entities/sale.entity';
 import { Debt } from '../../debts/entities/debt.entity';
+import { CustomerKind } from '../../../common/types/enums';
 
 @Entity('customers')
 export class Customer {
@@ -20,6 +21,15 @@ export class Customer {
 
   @Column({ length: 200 })
   name: string;
+
+  /**
+   * Tipo de contacto. Por defecto CUSTOMER para no romper datos existentes;
+   * el frontend permite alternar a SUPPLIER o BOTH desde el formulario.
+   * Usamos varchar en vez de enum nativo para evitar migraciones costosas
+   * cuando se agreguen tipos nuevos.
+   */
+  @Column({ type: 'varchar', length: 20, default: CustomerKind.CUSTOMER })
+  kind: CustomerKind;
 
   @Column({ nullable: true, length: 200 })
   email: string;

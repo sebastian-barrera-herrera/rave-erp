@@ -73,7 +73,7 @@ export class User {
   @Exclude()
   refresh_token_hash!: string;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   @Exclude()
   password_reset_token_hash!: string | null;
 

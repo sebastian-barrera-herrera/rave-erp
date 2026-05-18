@@ -3,6 +3,7 @@ import {
   UpdateDateColumn, DeleteDateColumn, ManyToOne, JoinColumn, OneToMany,
 } from 'typeorm';
 import { Company } from '../../companies/entities/company.entity';
+import { Customer } from '../../customers/entities/customer.entity';
 import { SaleItem } from '../../sales/entities/sale-item.entity';
 import { InventoryMovement } from '../../inventory/entities/inventory-movement.entity';
 
@@ -59,6 +60,18 @@ export class Product {
 
   @Column({ default: true })
   track_stock: boolean; // Some services don't need stock tracking
+
+  /**
+   * Proveedor que abastece este producto. Opcional. Apunta a un Customer
+   * con kind=SUPPLIER o BOTH. ON DELETE SET NULL: si se borra el proveedor
+   * no se borra el producto.
+   */
+  @Column({ type: 'uuid', nullable: true })
+  supplier_id: string | null;
+
+  @ManyToOne(() => Customer, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'supplier_id' })
+  supplier: Customer | null;
 
   @CreateDateColumn()
   created_at: Date;

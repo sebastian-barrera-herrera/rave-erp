@@ -2,7 +2,7 @@
 // DTOs de Products
 // ─────────────────────────────────────────────────────────────────────────────
 import {
-  IsString, IsOptional, IsNumber, Min, IsBoolean, IsInt,
+  IsString, IsOptional, IsNumber, Min, IsBoolean, IsInt, IsUUID,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
@@ -58,6 +58,13 @@ export class CreateProductDto {
   @ApiPropertyOptional({ example: true, description: 'Si descuenta stock al vender' })
   @IsOptional() @IsBoolean()
   track_stock?: boolean;
+
+  @ApiPropertyOptional({
+    description:
+      'UUID del proveedor (Customer con kind=SUPPLIER o BOTH). Opcional.',
+  })
+  @IsOptional() @IsUUID()
+  supplier_id?: string;
 }
 
 export class UpdateProductDto {
@@ -105,6 +112,10 @@ export class UpdateProductDto {
 
   @ApiPropertyOptional() @IsOptional() @IsBoolean()
   track_stock?: boolean;
+
+  @ApiPropertyOptional({ description: 'Cambiar/asignar proveedor del producto.' })
+  @IsOptional() @IsUUID()
+  supplier_id?: string;
 }
 
 export class FilterProductsDto {
@@ -122,6 +133,10 @@ export class FilterProductsDto {
   @ApiPropertyOptional({ description: 'Solo productos por debajo del stock mínimo' })
   @IsOptional() @IsBoolean()
   low_stock?: boolean;
+
+  @ApiPropertyOptional({ description: 'Filtrar por proveedor (UUID).' })
+  @IsOptional() @IsUUID()
+  supplier_id?: string;
 
   @ApiPropertyOptional({ default: 1 }) @IsOptional()
   page?: number;

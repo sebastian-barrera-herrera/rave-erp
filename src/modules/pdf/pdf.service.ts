@@ -386,22 +386,49 @@ export class PdfService {
       }
     }
 
-    // Company name
-    doc.fontSize(22).fillColor(WHITE).font('Helvetica-Bold')
-      .text(company.display_name || company.name, textX, 25, { width: 280 });
+    // Company name. `lineBreak: false` + ellipsis evita el salto de línea
+    // cuando el nombre es largo (reportaban "se desborda y baja a dos líneas").
+    // Auto-ajustamos el tamaño de fuente cuando el nombre no cabe a 22pt.
+    const nameText = company.display_name || company.name || '';
+    const maxNameWidth = 270;
+    let nameFontSize = 22;
+    doc.font('Helvetica-Bold');
+    while (
+      nameFontSize > 12 &&
+      doc.fontSize(nameFontSize).widthOfString(nameText) > maxNameWidth
+    ) {
+      nameFontSize -= 1;
+    }
+    doc.fontSize(nameFontSize).fillColor(WHITE)
+      .text(nameText, textX, 25, {
+        width: maxNameWidth,
+        ellipsis: true,
+        lineBreak: false,
+      });
 
     // Texto en blanco para contraste fuerte sobre el header oscuro — antes
     // estaba en '#A0B4CC' (azul-gris claro) y se veía apagado contra el
     // PRIMARY navy. Negro puro no funciona acá porque el fondo es oscuro.
     doc.fontSize(9).fillColor(WHITE).font('Helvetica');
-    if (company.address) doc.text(company.address, textX, 55, { width: 260 });
-    if (company.email) doc.text(company.email, textX, 68, { width: 260 });
-    if (company.phone) doc.text(company.phone, textX, 81, { width: 260 });
+    if (company.address)
+      doc.text(company.address, textX, 55, {
+        width: 250, ellipsis: true, lineBreak: false,
+      });
+    if (company.email)
+      doc.text(company.email, textX, 68, {
+        width: 250, ellipsis: true, lineBreak: false,
+      });
+    if (company.phone)
+      doc.text(company.phone, textX, 81, {
+        width: 250, ellipsis: true, lineBreak: false,
+      });
 
     // Tax id badge
     if (company.tax_id) {
       doc.fontSize(9).fillColor(WHITE)
-        .text(`NIT / ID: ${company.tax_id}`, 400, 68, { align: 'right', width: 145 });
+        .text(`NIT / ID: ${company.tax_id}`, 400, 68, {
+          align: 'right', width: 145, ellipsis: true, lineBreak: false,
+        });
     }
 
     doc.moveDown(0);
@@ -418,12 +445,30 @@ export class PdfService {
         textX = 100;
       } catch { /* ignore unsupported logo */ }
     }
-    doc.fontSize(18).fillColor(WHITE).font('Helvetica-Bold')
-      .text(company.display_name || company.name, textX, 15, { width: 320 });
+    // Mismo criterio anti-overflow que drawHeader: ellipsis + autoshrink
+    // para que el nombre no se desborde a dos líneas y empuje el título.
+    const nameText = company.display_name || company.name || '';
+    const maxNameWidth = doc.page.width - textX - 150;
+    let nameFontSize = 18;
+    doc.font('Helvetica-Bold');
+    while (
+      nameFontSize > 11 &&
+      doc.fontSize(nameFontSize).widthOfString(nameText) > maxNameWidth
+    ) {
+      nameFontSize -= 1;
+    }
+    doc.fontSize(nameFontSize).fillColor(WHITE)
+      .text(nameText, textX, 15, {
+        width: maxNameWidth, ellipsis: true, lineBreak: false,
+      });
     doc.fontSize(12).fillColor(WHITE).font('Helvetica')
-      .text(title, textX, 42, { width: 320 });
+      .text(title, textX, 42, {
+        width: maxNameWidth, ellipsis: true, lineBreak: false,
+      });
     doc.fontSize(9).fillColor(WHITE)
-      .text(fmtDate(new Date()), doc.page.width - 130, 42);
+      .text(fmtDate(new Date()), doc.page.width - 130, 42, {
+        width: 100, lineBreak: false,
+      });
     doc.y = 90;
   }
 
@@ -893,14 +938,26 @@ export class PdfService {
     const range = doc.bufferedPageRange();
     for (let i = range.start; i < range.start + range.count; i++) {
       doc.switchToPage(i);
-      // `lineBreak: false` evita que pdfkit considere overflow al escribir cerca
-      // del margen inferior — sin esto añade una página en blanco al final del
-      // documento aunque haya espacio suficiente.
+      // Línea de marca "Hebatech" + meta de página. Va dentro de los márgenes
+      // (50pt izq / der) y con `lineBreak: false` para que pdfkit no agregue
+      // una página extra cuando el cursor queda cerca del borde inferior.
+      const baseY = doc.page.height - 42;
+      doc.fontSize(8).fillColor(MID_GRAY).font('Helvetica')
+        .text(
+          'Hebatech — hebatechsoft@gmail.com · Atención lun–sáb 8 am a 8 pm',
+          50,
+          baseY,
+          {
+            align: 'center',
+            width: doc.page.width - 100,
+            lineBreak: false,
+          },
+        );
       doc.fontSize(8).fillColor(MID_GRAY).font('Helvetica')
         .text(
           `Generado el ${fmtDateTime(new Date())} — Página ${i + 1} de ${range.count}`,
           50,
-          doc.page.height - 30,
+          baseY + 12,
           {
             align: 'center',
             width: doc.page.width - 100,

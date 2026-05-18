@@ -279,4 +279,209 @@ export class ReportsService {
       [companyId],
     );
   }
+
+  /**
+   * Ranking de proveedores. Cuenta cuántos productos surte cada proveedor,
+   * el costo total inventariado y el promedio de costo. Útil para detectar
+   * concentración de proveedores y comparar precios entre los que comparten
+   * categoría.
+   */
+  async getTopSuppliers(companyId: string, limit = 20) {
+    return this.dataSource.query(
+      `SELECT
+         c.id, c.name, c.email, c.phone,
+         COUNT(p.id)::int as products_count,
+         COALESCE(SUM(p.stock * p.cost), 0) as inventory_value,
+         COALESCE(AVG(NULLIF(p.cost, 0)), 0) as avg_cost,
+         COUNT(DISTINCT p.category) FILTER (WHERE p.category IS NOT NULL)::int as categories,
+         ARRAY_AGG(DISTINCT p.category) FILTER (WHERE p.category IS NOT NULL) as category_list
+       FROM customers c
+       LEFT JOIN products p
+         ON p.supplier_id = c.id
+        AND p.deleted_at IS NULL
+        AND p.is_active = true
+       WHERE c.company_id = $1
+         AND c.deleted_at IS NULL
+         AND c.kind IN ('SUPPLIER', 'BOTH')
+       GROUP BY c.id, c.name, c.email, c.phone
+       ORDER BY inventory_value DESC, products_count DESC
+       LIMIT $2`,
+      [companyId, limit],
+    );
+  }
+
+  /**
+   * Compara precios entre proveedores dentro de una misma categoría.
+   * Pensado para responder "de los proveedores que me surten X categoría,
+   * ¿quién tiene mejor precio?". Devuelve filas (proveedor, categoría,
+   * avg_cost) ordenadas por cost asc dentro de cada categoría.
+   */
+  async getSupplierPriceComparison(companyId: string) {
+    return this.dataSource.query(
+      `SELECT
+         p.category,
+         c.id as supplier_id,
+         c.name as supplier_name,
+         COUNT(p.id)::int as products_count,
+         COALESCE(AVG(NULLIF(p.cost, 0)), 0) as avg_cost,
+         COALESCE(MIN(NULLIF(p.cost, 0)), 0) as min_cost,
+         COALESCE(MAX(NULLIF(p.cost, 0)), 0) as max_cost
+       FROM products p
+       JOIN customers c ON c.id = p.supplier_id
+       WHERE p.company_id = $1
+         AND p.deleted_at IS NULL
+         AND p.is_active = true
+         AND p.category IS NOT NULL
+         AND c.deleted_at IS NULL
+       GROUP BY p.category, c.id, c.name
+       ORDER BY p.category ASC, avg_cost ASC`,
+      [companyId],
+    );
+  }
+
+  /**
+   * Ranking de trabajadores por servicios prestados en un rango. Sirve
+   * para detectar quién está cargando más servicios, ingresos por trabajador
+   * y tiempo total invertido.
+   */
+  async getTopServiceWorkers(
+    companyId: string,
+    dateFrom: string,
+    dateTo: string,
+    limit = 20,
+  ) {
+    return this.dataSource.query(
+      `SELECT
+         u.id as worker_id,
+         u.name as worker_name,
+         u.role,
+         COUNT(s.id)::int as services_count,
+         COALESCE(SUM(s.cost), 0) as revenue,
+         COALESCE(SUM(s.duration_minutes), 0) as total_minutes,
+         COALESCE(AVG(s.cost), 0) as avg_cost,
+         COUNT(DISTINCT s.customer_id) FILTER (WHERE s.customer_id IS NOT NULL)::int as customers
+       FROM users u
+       LEFT JOIN services s
+         ON s.worker_id = u.id
+        AND s.deleted_at IS NULL
+        AND s.created_at BETWEEN $2 AND $3
+        AND s.status != 'CANCELED'
+       WHERE u.company_id = $1
+         AND u.deleted_at IS NULL
+         AND u.is_active = true
+       GROUP BY u.id, u.name, u.role
+       HAVING COUNT(s.id) > 0
+       ORDER BY services_count DESC, revenue DESC
+       LIMIT $4`,
+      [companyId, new Date(dateFrom), new Date(dateTo), limit],
+    );
+  }
+
+  /**
+   * Resumen agregado de servicios prestados: por tipo y por categoría.
+   * Útil para el dashboard de reports general.
+   */
+  async getServicesSummary(companyId: string, dateFrom: string, dateTo: string) {
+    const [byCategory, byType, totals] = await Promise.all([
+      this.dataSource.query(
+        `SELECT
+           COALESCE(NULLIF(category, ''), 'Sin categoría') as category,
+           COUNT(id)::int as services_count,
+           COALESCE(SUM(cost), 0) as revenue
+         FROM services
+         WHERE company_id = $1
+           AND deleted_at IS NULL
+           AND status != 'CANCELED'
+           AND created_at BETWEEN $2 AND $3
+         GROUP BY category
+         ORDER BY revenue DESC`,
+        [companyId, new Date(dateFrom), new Date(dateTo)],
+      ),
+      this.dataSource.query(
+        `SELECT
+           service_type,
+           COUNT(id)::int as services_count,
+           COALESCE(SUM(cost), 0) as revenue
+         FROM services
+         WHERE company_id = $1
+           AND deleted_at IS NULL
+           AND status != 'CANCELED'
+           AND created_at BETWEEN $2 AND $3
+         GROUP BY service_type
+         ORDER BY services_count DESC, revenue DESC
+         LIMIT 20`,
+        [companyId, new Date(dateFrom), new Date(dateTo)],
+      ),
+      this.dataSource.query(
+        `SELECT
+           COUNT(id)::int as total_services,
+           COALESCE(SUM(cost), 0) as total_revenue,
+           COALESCE(SUM(duration_minutes), 0) as total_minutes,
+           COALESCE(AVG(cost), 0) as avg_cost
+         FROM services
+         WHERE company_id = $1
+           AND deleted_at IS NULL
+           AND status != 'CANCELED'
+           AND created_at BETWEEN $2 AND $3`,
+        [companyId, new Date(dateFrom), new Date(dateTo)],
+      ),
+    ]);
+    return {
+      totals: totals[0] ?? {
+        total_services: 0, total_revenue: 0, total_minutes: 0, avg_cost: 0,
+      },
+      by_category: byCategory,
+      by_type: byType,
+    };
+  }
+
+  /**
+   * Resumen de devoluciones y averías. Permite ver dónde está perdiendo
+   * inventario / dinero la empresa.
+   */
+  async getReturnsSummary(companyId: string, dateFrom: string, dateTo: string) {
+    const [byType, topProducts, totals] = await Promise.all([
+      this.dataSource.query(
+        `SELECT type,
+                COUNT(id)::int as count,
+                COALESCE(SUM(total_amount), 0) as total_amount
+         FROM returns
+         WHERE company_id = $1
+           AND deleted_at IS NULL
+           AND created_at BETWEEN $2 AND $3
+         GROUP BY type`,
+        [companyId, new Date(dateFrom), new Date(dateTo)],
+      ),
+      this.dataSource.query(
+        `SELECT ri.product_name,
+                SUM(ri.quantity)::int as units,
+                COALESCE(SUM(ri.subtotal), 0) as amount,
+                COUNT(DISTINCT r.id)::int as occurrences,
+                r.type
+         FROM return_items ri
+         JOIN returns r ON r.id = ri.return_id
+         WHERE r.company_id = $1
+           AND r.deleted_at IS NULL
+           AND r.created_at BETWEEN $2 AND $3
+         GROUP BY ri.product_name, r.type
+         ORDER BY units DESC
+         LIMIT 15`,
+        [companyId, new Date(dateFrom), new Date(dateTo)],
+      ),
+      this.dataSource.query(
+        `SELECT COUNT(id)::int as total_returns,
+                COALESCE(SUM(total_amount), 0) as total_amount
+         FROM returns
+         WHERE company_id = $1
+           AND deleted_at IS NULL
+           AND created_at BETWEEN $2 AND $3`,
+        [companyId, new Date(dateFrom), new Date(dateTo)],
+      ),
+    ]);
+    return {
+      totals: totals[0] ?? { total_returns: 0, total_amount: 0 },
+      by_type: byType,
+      top_products: topProducts,
+    };
+  }
 }

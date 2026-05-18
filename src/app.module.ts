@@ -21,6 +21,8 @@ import { WompiModule } from './modules/wompi/wompi.module';
 import { WarehousesModule } from './modules/warehouses/warehouses.module';
 import { RemissionsModule } from './modules/remissions/remissions.module';
 import { PlannerModule } from './modules/planner/planner.module';
+import { ReturnsModule } from './modules/returns/returns.module';
+import { ServicesModule } from './modules/services/services.module';
 import { SharedModule } from './shared/shared.module';
 import { TenantMiddleware } from './common/middleware/tenant.middleware';
 import { HealthController } from './common/health.controller';
@@ -93,6 +95,8 @@ import { HealthController } from './common/health.controller';
     SalesModule,
     RemissionsModule,
     PlannerModule,
+    ReturnsModule,
+    ServicesModule,
     DebtsModule,
     PaymentsModule,
     ReportsModule,

@@ -79,6 +79,41 @@ export enum QuotationStatus {
   EXPIRED = 'EXPIRED',
 }
 
+/**
+ * Tipo de contacto. Permite que un mismo registro funcione como cliente,
+ * proveedor o ambos sin duplicar datos (ej. un mismo negocio que nos vende
+ * insumos y al que también le vendemos).
+ */
+export enum CustomerKind {
+  CUSTOMER = 'CUSTOMER',
+  SUPPLIER = 'SUPPLIER',
+  BOTH = 'BOTH',
+}
+
+/**
+ * Tipo de devolución:
+ *   - SALE_RETURN: cliente devuelve producto vendido. Repone stock,
+ *     reduce la deuda asociada si la venta era a crédito.
+ *   - DAMAGE: avería / pérdida de inventario, sin venta asociada. Solo
+ *     descuenta stock.
+ */
+export enum ReturnType {
+  SALE_RETURN = 'SALE_RETURN',
+  DAMAGE = 'DAMAGE',
+}
+
+export enum ReturnStatus {
+  COMPLETED = 'COMPLETED',
+  CANCELED = 'CANCELED',
+}
+
+export enum ServiceStatus {
+  SCHEDULED = 'SCHEDULED',
+  IN_PROGRESS = 'IN_PROGRESS',
+  COMPLETED = 'COMPLETED',
+  CANCELED = 'CANCELED',
+}
+
 export enum TicketType {
   CLAIM = 'CLAIM',
   COMPLAINT = 'COMPLAINT',
@@ -156,6 +191,18 @@ export enum Permission {
   // Planner (planeador diario)
   PLANNER_USE = 'planner:use',           // gestionar mis propios planes
   PLANNER_VIEW_ALL = 'planner:view_all', // ver planes de otros usuarios
+  // Returns (devoluciones y averías)
+  RETURNS_VIEW = 'returns:view',
+  RETURNS_CREATE = 'returns:create',
+  RETURNS_CANCEL = 'returns:cancel',
+  // Services (servicios técnicos)
+  SERVICES_VIEW = 'services:view',
+  SERVICES_CREATE = 'services:create',
+  SERVICES_EDIT = 'services:edit',
+  SERVICES_DELETE = 'services:delete',
+  // Suppliers (proveedores — comparten tabla con customers pero gestión propia)
+  SUPPLIERS_VIEW = 'suppliers:view',
+  SUPPLIERS_MANAGE = 'suppliers:manage',
 }
 
 // Default permissions per built-in role
@@ -177,6 +224,9 @@ export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     Permission.QUOTATIONS_DELETE, Permission.QUOTATIONS_SEND,
     Permission.SUPPORT_VIEW, Permission.SUPPORT_MANAGE,
     Permission.PLANNER_USE, Permission.PLANNER_VIEW_ALL,
+    Permission.RETURNS_VIEW, Permission.RETURNS_CREATE, Permission.RETURNS_CANCEL,
+    Permission.SERVICES_VIEW, Permission.SERVICES_CREATE, Permission.SERVICES_EDIT, Permission.SERVICES_DELETE,
+    Permission.SUPPLIERS_VIEW, Permission.SUPPLIERS_MANAGE,
   ],
   [UserRole.SELLER]: [
     Permission.PRODUCTS_VIEW,
@@ -187,6 +237,9 @@ export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     Permission.DEBTS_VIEW,
     Permission.PAYMENTS_VIEW, Permission.PAYMENTS_CREATE,
     Permission.PLANNER_USE,
+    Permission.RETURNS_VIEW, Permission.RETURNS_CREATE,
+    Permission.SERVICES_VIEW, Permission.SERVICES_CREATE, Permission.SERVICES_EDIT,
+    Permission.SUPPLIERS_VIEW,
   ],
   [UserRole.CASHIER]: [
     Permission.PRODUCTS_VIEW,
@@ -209,5 +262,8 @@ export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     Permission.INVENTORY_VIEW,
     Permission.SUPPORT_VIEW,
     Permission.PLANNER_USE,
+    Permission.RETURNS_VIEW,
+    Permission.SERVICES_VIEW,
+    Permission.SUPPLIERS_VIEW,
   ],
 };

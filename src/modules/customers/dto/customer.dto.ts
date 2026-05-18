@@ -2,9 +2,10 @@
 // DTOs de Customers (clientes finales de la empresa)
 // ─────────────────────────────────────────────────────────────────────────────
 import {
-  IsString, IsOptional, IsEmail, IsBoolean, IsDateString, IsNumber, Min,
+  IsString, IsOptional, IsEmail, IsBoolean, IsDateString, IsNumber, Min, IsEnum,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { CustomerKind } from '../../../common/types/enums';
 
 export class EmploymentCertificateDto {
   @ApiPropertyOptional({ example: 'Auxiliar contable' })
@@ -71,6 +72,15 @@ export class CreateCustomerDto {
   @ApiPropertyOptional({ example: 'Cliente VIP, descuento 5%' })
   @IsOptional() @IsString()
   notes?: string;
+
+  @ApiPropertyOptional({
+    enum: CustomerKind,
+    example: CustomerKind.CUSTOMER,
+    description:
+      'CUSTOMER (cliente final), SUPPLIER (proveedor) o BOTH (ambos). Default CUSTOMER.',
+  })
+  @IsOptional() @IsEnum(CustomerKind)
+  kind?: CustomerKind;
 }
 
 export class UpdateCustomerDto {
@@ -106,6 +116,10 @@ export class UpdateCustomerDto {
   @ApiPropertyOptional({ example: true })
   @IsOptional() @IsBoolean()
   is_active?: boolean;
+
+  @ApiPropertyOptional({ enum: CustomerKind })
+  @IsOptional() @IsEnum(CustomerKind)
+  kind?: CustomerKind;
 }
 
 export class FilterCustomersDto {
@@ -116,6 +130,15 @@ export class FilterCustomersDto {
   @ApiPropertyOptional({ description: 'Filtrar por estado activo' })
   @IsOptional() @IsBoolean()
   is_active?: boolean;
+
+  @ApiPropertyOptional({
+    enum: CustomerKind,
+    description:
+      'Filtra por tipo de contacto. Si se omite devuelve cualquier tipo. ' +
+      'Pasar SUPPLIER incluye también los marcados como BOTH (mismo principio para CUSTOMER).',
+  })
+  @IsOptional() @IsEnum(CustomerKind)
+  kind?: CustomerKind;
 
   @ApiPropertyOptional({ default: 1, example: 1 })
   @IsOptional()

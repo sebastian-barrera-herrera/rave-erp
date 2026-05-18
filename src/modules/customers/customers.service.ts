@@ -6,6 +6,7 @@ import {
   CreateCustomerDto, UpdateCustomerDto, FilterCustomersDto,
 } from './dto/customer.dto';
 import { paginate } from '../../common/types/pagination.type';
+import { CustomerKind } from '../../common/types/enums';
 
 @Injectable()
 export class CustomersService {
@@ -35,6 +36,17 @@ export class CustomersService {
       });
     if (typeof filters.is_active === 'boolean')
       qb.andWhere('c.is_active = :active', { active: filters.is_active });
+    // Filtro por tipo. SUPPLIER/CUSTOMER incluyen también BOTH para que
+    // un contacto "ambos" aparezca en ambas vistas del frontend.
+    if (filters.kind) {
+      if (filters.kind === CustomerKind.BOTH) {
+        qb.andWhere('c.kind = :kind', { kind: CustomerKind.BOTH });
+      } else {
+        qb.andWhere('c.kind IN (:...kinds)', {
+          kinds: [filters.kind, CustomerKind.BOTH],
+        });
+      }
+    }
 
     qb.skip(skip).take(limit).orderBy('c.name', 'ASC');
     const [data, total] = await qb.getManyAndCount();
@@ -135,6 +147,7 @@ export class CustomersService {
       document_type: customer.document_type,
       document_number: customer.document_number,
       is_active: customer.is_active,
+      kind: customer.kind,
     };
 
     return {

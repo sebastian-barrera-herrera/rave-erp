@@ -92,6 +92,15 @@ export class ProductsService {
       qb.andWhere('p.is_active = :active', { active: filters.is_active });
     if (filters.low_stock)
       qb.andWhere('p.stock <= p.min_stock AND p.track_stock = true');
+    if (filters.supplier_id)
+      qb.andWhere('p.supplier_id = :sup', { sup: filters.supplier_id });
+
+    qb.leftJoinAndMapOne(
+      'p.supplier',
+      'customers',
+      'sup',
+      'sup.id = p.supplier_id AND sup.deleted_at IS NULL',
+    );
 
     qb.skip(skip).take(limit).orderBy('p.name', 'ASC');
     const [data, total] = await qb.getManyAndCount();
@@ -99,7 +108,10 @@ export class ProductsService {
   }
 
   async findOne(id: string, companyId: string) {
-    const product = await this.productRepo.findOne({ where: { id, company_id: companyId } });
+    const product = await this.productRepo.findOne({
+      where: { id, company_id: companyId },
+      relations: ['supplier'],
+    });
     if (!product) throw new NotFoundException('Producto no encontrado');
     return product;
   }
