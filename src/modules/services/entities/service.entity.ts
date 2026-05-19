@@ -35,7 +35,7 @@ export class ServiceEntity {
   @Column({ length: 120 })
   service_type: string;
 
-  @Column({ length: 80, nullable: true })
+  @Column({ type: 'varchar', length: 80, nullable: true })
   category: string | null;
 
   @Column({ type: 'varchar', length: 20, default: ServiceStatus.COMPLETED })
@@ -58,7 +58,7 @@ export class ServiceEntity {
   worker: User | null;
 
   /** Texto libre cuando worker_id es null (ej. "Pedro Gómez - contratista"). */
-  @Column({ length: 150, nullable: true })
+  @Column({ type: 'varchar', length: 150, nullable: true })
   worker_name: string | null;
 
   @Column({ type: 'text', nullable: true })

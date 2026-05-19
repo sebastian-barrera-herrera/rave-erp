@@ -37,7 +37,7 @@ export class ReturnItem {
   @Column('decimal', { precision: 14, scale: 2, default: 0 })
   subtotal: number;
 
-  @Column({ length: 200, nullable: true })
+  @Column({ type: 'varchar', length: 200, nullable: true })
   reason: string | null;
 
   @CreateDateColumn()

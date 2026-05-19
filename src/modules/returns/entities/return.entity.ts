@@ -61,7 +61,7 @@ export class Return {
   @JoinColumn({ name: 'user_id' })
   user: User | null;
 
-  @Column({ length: 300, nullable: true })
+  @Column({ type: 'varchar', length: 300, nullable: true })
   reason: string | null;
 
   @Column({ type: 'text', nullable: true })
