@@ -1,75 +1,87 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import * as nodemailer from 'nodemailer';
+import { Resend } from 'resend';
 
+/**
+ * Servicio de correos basado en Resend (https://resend.com).
+ *
+ * Migrado desde nodemailer/SMTP porque:
+ *   - SMTP (Gmail, AWS SES, etc.) fallaba en Render por bloqueos de puerto 465/587
+ *     y políticas anti-spam del proveedor saliente. Los correos quedaban en
+ *     "queued" sin entregarse y sin error claro.
+ *   - Resend tiene una API HTTPS simple, una cuota gratuita (3K/mes) y mejor
+ *     deliverability (DKIM + SPF automático contra el dominio verificado).
+ *
+ * Las firmas públicas (sendWelcome, sendInvitation, sendInvoice, etc.) se
+ * mantienen idénticas para no tocar callers (auth, sales, support, wompi…).
+ */
 @Injectable()
 export class MailService implements OnModuleInit {
-  private transporter: nodemailer.Transporter;
+  private resend: Resend | null = null;
   private readonly logger = new Logger(MailService.name);
+  private readonly apiKey: string | undefined;
+  private readonly fromEmail: string;
+  private readonly fromName: string;
   private readonly from: string;
-  private readonly host?: string;
-  private readonly port: number;
-  private readonly user?: string;
-  private readonly mailFrom?: string;
   private lastVerify: { ok: boolean; error?: string; checked_at: string } | null = null;
 
   constructor(private readonly configService: ConfigService) {
-    this.host = configService.get<string>('SMTP_HOST');
-    this.port = configService.get<number>('SMTP_PORT', 587);
-    this.user = configService.get<string>('SMTP_USER');
-    const pass = configService.get<string>('SMTP_PASS');
-    this.mailFrom = configService.get<string>('MAIL_FROM');
+    this.apiKey = configService.get<string>('RESEND_API_KEY');
+    // EMAIL_FROM tiene prioridad (variable nueva tras la migración). Caemos
+    // a MAIL_FROM por compatibilidad con configuraciones SMTP previas.
+    this.fromEmail =
+      configService.get<string>('EMAIL_FROM') ??
+      configService.get<string>('MAIL_FROM') ??
+      'onboarding@resend.dev';
+    this.fromName = configService.get<string>('MAIL_FROM_NAME', 'ERP SaaS');
+    this.from = `${this.fromName} <${this.fromEmail}>`;
 
-    this.transporter = nodemailer.createTransport({
-      host: this.host,
-      port: this.port,
-      secure: this.port === 465,
-      auth: this.user && pass ? { user: this.user, pass } : undefined,
-      // Timeouts cortos para que no se cuelgue una request si el SMTP está caído.
-      connectionTimeout: 10_000,
-      greetingTimeout: 10_000,
-      socketTimeout: 15_000,
-    });
-    this.from = `"${configService.get('MAIL_FROM_NAME', 'ERP SaaS')}" <${this.mailFrom}>`;
+    if (this.apiKey) {
+      this.resend = new Resend(this.apiKey);
+    }
   }
 
   async onModuleInit() {
-    // Verificación no-bloqueante al iniciar — si SMTP no responde se logguea
-    // ruidosamente para que el operador lo vea en Render sin tener que esperar
-    // a que un usuario reporte que "no llegan correos".
-    const missing = this.missingConfig();
-    if (missing.length) {
-      this.logger.error(`SMTP no configurado. Faltan env vars: ${missing.join(', ')}`);
-      this.lastVerify = { ok: false, error: `missing_env:${missing.join(',')}`, checked_at: new Date().toISOString() };
+    // Verificación al arrancar — no llama a Resend (no hay endpoint de ping),
+    // solo confirma que la config está presente.
+    if (!this.apiKey) {
+      this.logger.error('RESEND_API_KEY no configurada — los correos no se enviarán.');
+      this.lastVerify = {
+        ok: false,
+        error: 'missing_env:RESEND_API_KEY',
+        checked_at: new Date().toISOString(),
+      };
       return;
     }
-    try {
-      await this.transporter.verify();
-      this.lastVerify = { ok: true, checked_at: new Date().toISOString() };
-      this.logger.log(`SMTP OK → ${this.host}:${this.port} (from ${this.mailFrom})`);
-    } catch (err: unknown) {
-      const message = this.getErrorMessage(err);
-      this.lastVerify = { ok: false, error: message, checked_at: new Date().toISOString() };
-      this.logger.error(`SMTP verify falló → ${this.host}:${this.port}: ${message}`);
-    }
+    this.lastVerify = { ok: true, checked_at: new Date().toISOString() };
+    this.logger.log(`Resend listo — from "${this.from}"`);
   }
 
   /**
-   * Estado pública del último verify SMTP. Usado por /health/smtp para
-   * diagnóstico desde producción sin acceder a logs de Render.
+   * Estado público del último verify. Usado por /health/smtp.
+   * Mantiene el nombre del endpoint por compatibilidad aunque ya no sea SMTP.
    */
   async checkConnection() {
-    const missing = this.missingConfig();
-    if (missing.length) {
-      return { ok: false, error: `missing_env:${missing.join(',')}`, checked_at: new Date().toISOString() };
+    if (!this.apiKey || !this.resend) {
+      return {
+        ok: false,
+        error: 'missing_env:RESEND_API_KEY',
+        checked_at: new Date().toISOString(),
+      };
     }
+    // Resend no tiene endpoint de "ping" — usamos un GET a /domains que
+    // confirma que la API key es válida sin gastar cuota de envío.
     try {
-      await this.transporter.verify();
+      await this.resend.domains.list();
       const result = { ok: true, checked_at: new Date().toISOString() };
       this.lastVerify = result;
       return result;
     } catch (err: unknown) {
-      const result = { ok: false, error: this.getErrorMessage(err), checked_at: new Date().toISOString() };
+      const result = {
+        ok: false,
+        error: this.getErrorMessage(err),
+        checked_at: new Date().toISOString(),
+      };
       this.lastVerify = result;
       return result;
     }
@@ -77,23 +89,17 @@ export class MailService implements OnModuleInit {
 
   getStatus() {
     return {
-      configured: this.missingConfig().length === 0,
-      host: this.host ?? null,
-      port: this.port,
-      user_set: !!this.user,
-      from: this.mailFrom ?? null,
+      provider: 'resend',
+      configured: !!this.apiKey,
+      from: this.fromEmail,
+      from_name: this.fromName,
       last_verify: this.lastVerify,
     };
   }
 
-  private missingConfig(): string[] {
-    const missing: string[] = [];
-    if (!this.host) missing.push('SMTP_HOST');
-    if (!this.user) missing.push('SMTP_USER');
-    if (!this.configService.get('SMTP_PASS')) missing.push('SMTP_PASS');
-    if (!this.mailFrom) missing.push('MAIL_FROM');
-    return missing;
-  }
+  // ────────────────────────────────────────────────────────────────────────
+  // Public API — firmas idénticas a la versión SMTP
+  // ────────────────────────────────────────────────────────────────────────
 
   async sendWelcome(to: string, name: string, companyName: string, trialDays: number) {
     return this.send(to, `Bienvenido a ERP SaaS, ${name}!`, this.wrap(`
@@ -182,26 +188,13 @@ export class MailService implements OnModuleInit {
       <p>Si tiene alguna pregunta o desea proceder, no dude en contactarnos.</p>
     `);
 
-    try {
-      await this.transporter.sendMail({
-        from: this.from,
-        to,
-        subject: `Cotización ${quotationNumber} — ${companyName}`,
-        html,
-        attachments: [
-          {
-            filename: `${quotationNumber}.pdf`,
-            content: pdfBuffer,
-            contentType: 'application/pdf',
-          },
-        ],
-      });
-      this.logger.log(`Quotation email sent → ${to}: ${quotationNumber}`);
-    } catch (err: unknown) {
-      const message = this.getErrorMessage(err);
-      this.logger.error(`Quotation email failed → ${to}: ${message}`);
-      throw err;
-    }
+    return this.sendWithAttachment(
+      to,
+      `Cotización ${quotationNumber} — ${companyName}`,
+      html,
+      `${quotationNumber}.pdf`,
+      pdfBuffer,
+    );
   }
 
   async sendInvoice(
@@ -235,26 +228,13 @@ export class MailService implements OnModuleInit {
       <p>Si tiene alguna pregunta sobre esta factura, no dude en contactarnos.</p>
     `);
 
-    try {
-      await this.transporter.sendMail({
-        from: this.from,
-        to,
-        subject: `Factura ${invoiceNumber} — ${companyName}`,
-        html,
-        attachments: [
-          {
-            filename: `${invoiceNumber}.pdf`,
-            content: pdfBuffer,
-            contentType: 'application/pdf',
-          },
-        ],
-      });
-      this.logger.log(`Invoice email sent → ${to}: ${invoiceNumber}`);
-    } catch (err: unknown) {
-      const message = this.getErrorMessage(err);
-      this.logger.error(`Invoice email failed → ${to}: ${message}`);
-      throw err;
-    }
+    return this.sendWithAttachment(
+      to,
+      `Factura ${invoiceNumber} — ${companyName}`,
+      html,
+      `${invoiceNumber}.pdf`,
+      pdfBuffer,
+    );
   }
 
   async sendTicketConfirmation(
@@ -276,29 +256,18 @@ export class MailService implements OnModuleInit {
       <p>Tu solicitud de soporte ha sido recibida y está siendo atendida.</p>
       <div style="background:#F8FAFC;border-radius:8px;padding:16px 20px;margin:20px 0;">
         <table style="width:100%;border-collapse:collapse;">
-          <tr>
-            <td style="padding:6px 0;color:#64748B;font-size:13px;">N° de ticket</td>
-            <td style="padding:6px 0;font-weight:bold;color:#1E3A5F;">${ticketNumber}</td>
-          </tr>
-          <tr>
-            <td style="padding:6px 0;color:#64748B;font-size:13px;">Tipo</td>
-            <td style="padding:6px 0;">${TYPE_LABELS[type] || type}</td>
-          </tr>
-          <tr>
-            <td style="padding:6px 0;color:#64748B;font-size:13px;">Asunto</td>
-            <td style="padding:6px 0;">${subject}</td>
-          </tr>
+          <tr><td style="padding:6px 0;color:#64748B;font-size:13px;">N° de ticket</td>
+              <td style="padding:6px 0;font-weight:bold;color:#1E3A5F;">${ticketNumber}</td></tr>
+          <tr><td style="padding:6px 0;color:#64748B;font-size:13px;">Tipo</td>
+              <td style="padding:6px 0;">${TYPE_LABELS[type] || type}</td></tr>
+          <tr><td style="padding:6px 0;color:#64748B;font-size:13px;">Asunto</td>
+              <td style="padding:6px 0;">${subject}</td></tr>
         </table>
       </div>
       <p>Te notificaremos cuando haya una respuesta. Puedes seguir el estado desde tu cuenta.</p>
     `));
   }
 
-  /**
-   * Notifica al dueño de la plataforma sobre un ticket recién creado.
-   * Se envía a `SUPPORT_OWNER_EMAIL` (por defecto baherreras8@gmail.com)
-   * para que el equipo pueda responder cuanto antes desde el panel.
-   */
   async sendTicketAlertToOwner(params: {
     ticketNumber: string;
     type: string;
@@ -316,23 +285,14 @@ export class MailService implements OnModuleInit {
     if (!ownerEmail) return;
 
     const TYPE_LABELS: Record<string, string> = {
-      CLAIM: 'Reclamación',
-      COMPLAINT: 'Queja',
-      SUGGESTION: 'Sugerencia',
-      QUESTION: 'Pregunta',
-      OTHER: 'Otro',
+      CLAIM: 'Reclamación', COMPLAINT: 'Queja', SUGGESTION: 'Sugerencia',
+      QUESTION: 'Pregunta', OTHER: 'Otro',
     };
     const PRIORITY_LABELS: Record<string, string> = {
-      LOW: 'Baja',
-      MEDIUM: 'Media',
-      HIGH: 'Alta',
-      URGENT: 'Urgente',
+      LOW: 'Baja', MEDIUM: 'Media', HIGH: 'Alta', URGENT: 'Urgente',
     };
     const priorityColor: Record<string, string> = {
-      LOW: '#64748B',
-      MEDIUM: '#2563EB',
-      HIGH: '#F59E0B',
-      URGENT: '#DC2626',
+      LOW: '#64748B', MEDIUM: '#2563EB', HIGH: '#F59E0B', URGENT: '#DC2626',
     };
 
     return this.send(
@@ -343,34 +303,22 @@ export class MailService implements OnModuleInit {
         <p>Una empresa abrió un nuevo ticket que requiere tu atención.</p>
         <div style="background:#F8FAFC;border-radius:8px;padding:16px 20px;margin:20px 0;">
           <table style="width:100%;border-collapse:collapse;">
-            <tr>
-              <td style="padding:6px 0;color:#64748B;font-size:13px;width:130px;">N° de ticket</td>
-              <td style="padding:6px 0;font-weight:bold;color:#1E3A5F;">${params.ticketNumber}</td>
-            </tr>
-            <tr>
-              <td style="padding:6px 0;color:#64748B;font-size:13px;">Empresa</td>
-              <td style="padding:6px 0;font-weight:600;">${params.companyName}</td>
-            </tr>
-            <tr>
-              <td style="padding:6px 0;color:#64748B;font-size:13px;">Reportado por</td>
-              <td style="padding:6px 0;">${params.userName} &lt;${params.userEmail}&gt;</td>
-            </tr>
-            <tr>
-              <td style="padding:6px 0;color:#64748B;font-size:13px;">Tipo</td>
-              <td style="padding:6px 0;">${TYPE_LABELS[params.type] || params.type}</td>
-            </tr>
-            <tr>
-              <td style="padding:6px 0;color:#64748B;font-size:13px;">Prioridad</td>
-              <td style="padding:6px 0;">
-                <span style="display:inline-block;padding:2px 10px;border-radius:12px;background:${priorityColor[params.priority] || '#64748B'}15;color:${priorityColor[params.priority] || '#64748B'};font-weight:600;font-size:12px;">
-                  ${PRIORITY_LABELS[params.priority] || params.priority}
-                </span>
-              </td>
-            </tr>
-            <tr>
-              <td style="padding:6px 0;color:#64748B;font-size:13px;vertical-align:top;">Asunto</td>
-              <td style="padding:6px 0;font-weight:600;">${params.subject}</td>
-            </tr>
+            <tr><td style="padding:6px 0;color:#64748B;font-size:13px;width:130px;">N° de ticket</td>
+                <td style="padding:6px 0;font-weight:bold;color:#1E3A5F;">${params.ticketNumber}</td></tr>
+            <tr><td style="padding:6px 0;color:#64748B;font-size:13px;">Empresa</td>
+                <td style="padding:6px 0;font-weight:600;">${params.companyName}</td></tr>
+            <tr><td style="padding:6px 0;color:#64748B;font-size:13px;">Reportado por</td>
+                <td style="padding:6px 0;">${params.userName} &lt;${params.userEmail}&gt;</td></tr>
+            <tr><td style="padding:6px 0;color:#64748B;font-size:13px;">Tipo</td>
+                <td style="padding:6px 0;">${TYPE_LABELS[params.type] || params.type}</td></tr>
+            <tr><td style="padding:6px 0;color:#64748B;font-size:13px;">Prioridad</td>
+                <td style="padding:6px 0;">
+                  <span style="display:inline-block;padding:2px 10px;border-radius:12px;background:${priorityColor[params.priority] || '#64748B'}15;color:${priorityColor[params.priority] || '#64748B'};font-weight:600;font-size:12px;">
+                    ${PRIORITY_LABELS[params.priority] || params.priority}
+                  </span>
+                </td></tr>
+            <tr><td style="padding:6px 0;color:#64748B;font-size:13px;vertical-align:top;">Asunto</td>
+                <td style="padding:6px 0;font-weight:600;">${params.subject}</td></tr>
           </table>
         </div>
         <div style="background:#FFF;border:1px solid #E2E8F0;border-radius:8px;padding:14px 18px;margin:16px 0;">
@@ -403,10 +351,6 @@ export class MailService implements OnModuleInit {
     `));
   }
 
-  /**
-   * Notifica al admin de la empresa que un pago fue procesado exitosamente
-   * (utilizado por la integración con Wompi al recibir un evento APPROVED).
-   */
   async sendPaymentSuccess(to: string, companyName: string, plan: string) {
     return this.send(to, 'Pago confirmado — Suscripción activa', this.wrap(`
       <h2 style="color:#16A34A;">¡Pago confirmado!</h2>
@@ -419,10 +363,6 @@ export class MailService implements OnModuleInit {
     `));
   }
 
-  /**
-   * Email de recuperación de contraseña. Incluye un link al frontend con el
-   * token plano embebido. El token expira en `expiresAt`.
-   */
   async sendPasswordReset(to: string, userName: string, tokenPlain: string, expiresAt: Date) {
     const link = `${this.configService.get('FRONTEND_URL')}/reset-password/${tokenPlain}`;
     const minutes = Math.max(1, Math.round((expiresAt.getTime() - Date.now()) / 60000));
@@ -496,6 +436,10 @@ export class MailService implements OnModuleInit {
     `));
   }
 
+  // ────────────────────────────────────────────────────────────────────────
+  // Internals
+  // ────────────────────────────────────────────────────────────────────────
+
   private wrap(content: string): string {
     return `<!DOCTYPE html><html><body style="font-family:Arial,sans-serif;background:#F8FAFC;margin:0;padding:20px;">
       <div style="max-width:600px;margin:0 auto;background:white;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
@@ -513,20 +457,67 @@ export class MailService implements OnModuleInit {
   private getErrorMessage(err: unknown): string {
     if (err instanceof Error) return err.message;
     if (typeof err === 'string') return err;
-    try {
-      return JSON.stringify(err);
-    } catch {
-      return 'Unknown error';
-    }
+    try { return JSON.stringify(err); } catch { return 'Unknown error'; }
   }
 
   private async send(to: string, subject: string, html: string) {
+    if (!this.resend) {
+      this.logger.error(`Resend no inicializado — correo a ${to} omitido: ${subject}`);
+      return;
+    }
     try {
-      await this.transporter.sendMail({ from: this.from, to, subject, html });
-      this.logger.log(`Email sent → ${to}: ${subject}`);
+      const { data, error } = await this.resend.emails.send({
+        from: this.from,
+        to,
+        subject,
+        html,
+      });
+      if (error) {
+        // Resend devuelve `error` en el body en vez de throw — lo normalizamos
+        // a excepción para que los callers lo manejen igual que antes.
+        throw new Error(`${error.name ?? 'ResendError'}: ${error.message}`);
+      }
+      this.logger.log(`Email enviado (Resend) → ${to} [${data?.id}]: ${subject}`);
     } catch (err: unknown) {
       const message = this.getErrorMessage(err);
-      this.logger.error(`Email failed → ${to}: ${message}`);
+      this.logger.error(`Email FALLÓ → ${to}: ${message}`);
+      throw err;
+    }
+  }
+
+  private async sendWithAttachment(
+    to: string,
+    subject: string,
+    html: string,
+    filename: string,
+    pdfBuffer: Buffer,
+  ) {
+    if (!this.resend) {
+      this.logger.error(`Resend no inicializado — correo a ${to} omitido: ${subject}`);
+      return;
+    }
+    try {
+      const { data, error } = await this.resend.emails.send({
+        from: this.from,
+        to,
+        subject,
+        html,
+        attachments: [
+          {
+            filename,
+            // Resend acepta Buffer directamente o string base64. Buffer
+            // es lo más simple porque pdf.service ya devuelve Buffer.
+            content: pdfBuffer,
+          },
+        ],
+      });
+      if (error) {
+        throw new Error(`${error.name ?? 'ResendError'}: ${error.message}`);
+      }
+      this.logger.log(`Email con PDF (Resend) → ${to} [${data?.id}]: ${subject}`);
+    } catch (err: unknown) {
+      const message = this.getErrorMessage(err);
+      this.logger.error(`Email con PDF FALLÓ → ${to}: ${message}`);
       throw err;
     }
   }

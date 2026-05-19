@@ -71,6 +71,21 @@ export class CreateReturnDto {
   items: ReturnItemDto[];
 }
 
+/**
+ * Body para resolver una avería: el producto se recupera y vuelve al
+ * inventario en una bodega específica. Opcionalmente se incluyen notas
+ * para auditoría ("se reparó", "recuperado del proveedor", etc.).
+ */
+export class ResolveDamageDto {
+  @ApiProperty({ description: 'UUID de la bodega a la cual se reincorpora el stock' })
+  @IsUUID()
+  warehouse_id: string;
+
+  @ApiPropertyOptional({ example: 'Producto reparado y reincorporado al stock' })
+  @IsOptional() @IsString()
+  notes?: string;
+}
+
 export class FilterReturnsDto {
   @ApiPropertyOptional({ enum: ReturnType })
   @IsOptional() @IsEnum(ReturnType)

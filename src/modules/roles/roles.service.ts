@@ -4,7 +4,8 @@ import { Repository } from 'typeorm';
 import { CustomRole } from './entities/custom-role.entity';
 import { CreateCustomRoleDto, UpdateCustomRoleDto } from './dto/custom-role.dto';
 import { FilterRolesDto } from './dto/filter-roles.dto';
-import { Permission } from '../../common/types/enums';
+import { Permission, ROLE_PERMISSIONS, UserRole } from '../../common/types/enums';
+import { User } from '../users/entities/user.entity';
 import { paginate } from '../../common/types/pagination.type';
 import { MemoryCacheService } from '../../shared/services/cache.service';
 
@@ -70,9 +71,105 @@ export class RolesService {
   }
 
   async findOne(id: string, companyId: string) {
-    const role = await this.roleRepo.findOne({ where: { id, company_id: companyId } });
+    const role = await this.roleRepo.findOne({
+      where: { id, company_id: companyId },
+      // `users` se carga eagerly para que el detalle del rol muestre los
+      // miembros sin un segundo round-trip. Es relación @OneToMany — solo
+      // los users con custom_role_id = role.id.
+      relations: ['users'],
+    });
     if (!role) throw new NotFoundException('Rol no encontrado');
+    // Recortamos campos sensibles de los miembros (no exponemos password
+    // hash, refresh tokens, etc.) — solo lo necesario para listar.
+    (role as any).members = (role.users || [])
+      .filter((u: any) => !u.deleted_at)
+      .map((u: any) => ({
+        id: u.id,
+        name: u.name,
+        email: u.email,
+        avatar_url: u.avatar_url,
+      }));
+    delete (role as any).users;
     return role;
+  }
+
+  /**
+   * Devuelve los roles incorporados (ADMIN, MANAGER, CASHIER, etc.) con
+   * sus permisos por defecto + cuántos miembros tiene cada uno en esta
+   * empresa. Útil para mostrar en la UI junto a los roles personalizados.
+   */
+  async listBuiltInRoles(companyId: string) {
+    const LABELS: Record<UserRole, string> = {
+      [UserRole.ADMIN]: 'Administrador',
+      [UserRole.MANAGER]: 'Gerente',
+      [UserRole.SELLER]: 'Vendedor',
+      [UserRole.CASHIER]: 'Cajero',
+      [UserRole.EMPLOYEE]: 'Empleado',
+    };
+    const DESCRIPTIONS: Record<UserRole, string> = {
+      [UserRole.ADMIN]: 'Acceso total. No se puede editar.',
+      [UserRole.MANAGER]: 'Gestiona la mayoría de módulos sin tocar facturación ni equipo.',
+      [UserRole.SELLER]: 'Vende, cotiza y cobra. Sin acceso a reportes profundos ni configuración.',
+      [UserRole.CASHIER]: 'Solo punto de venta y cobros. Sin gestión de inventario.',
+      [UserRole.EMPLOYEE]: 'Solo lectura. No puede modificar nada.',
+    };
+
+    const rows: Array<{
+      key: UserRole;
+      name: string;
+      description: string;
+      permissions: Permission[];
+      members_count: number;
+      builtin: true;
+    }> = [];
+    for (const role of Object.values(UserRole)) {
+      // ADMIN tiene "todos los permisos" — lo enumeramos completo para que la
+      // UI no muestre "0 permisos". El guard de permisos hace bypass para
+      // ADMIN igual, esto es solo cosmético.
+      const perms =
+        role === UserRole.ADMIN
+          ? Object.values(Permission)
+          : ROLE_PERMISSIONS[role] || [];
+      const countRow = (await this.roleRepo.manager
+        .createQueryBuilder()
+        .select('COUNT(*)', 'count')
+        .from(User, 'u')
+        .where('u.company_id = :companyId', { companyId })
+        .andWhere('u.role = :role', { role })
+        .andWhere('u.deleted_at IS NULL')
+        .getRawOne()) as { count: string } | undefined;
+      rows.push({
+        key: role,
+        name: LABELS[role],
+        description: DESCRIPTIONS[role],
+        permissions: perms,
+        members_count: Number(countRow?.count ?? 0),
+        builtin: true,
+      });
+    }
+    return rows;
+  }
+
+  /**
+   * Miembros que tienen asignado un rol incorporado en esta empresa.
+   * Se devuelven solo los campos seguros para listar (sin password hash).
+   */
+  async listBuiltInRoleMembers(role: UserRole, companyId: string) {
+    const rows: any[] = await this.roleRepo.manager
+      .createQueryBuilder()
+      .select(['u.id AS id', 'u.name AS name', 'u.email AS email', 'u.avatar_url AS avatar_url'])
+      .from(User, 'u')
+      .where('u.company_id = :companyId', { companyId })
+      .andWhere('u.role = :role', { role })
+      .andWhere('u.deleted_at IS NULL')
+      .orderBy('u.name', 'ASC')
+      .getRawMany();
+    return rows.map((u) => ({
+      id: u.id,
+      name: u.name,
+      email: u.email,
+      avatar_url: u.avatar_url,
+    }));
   }
 
   async update(id: string, dto: UpdateCustomRoleDto, companyId: string) {

@@ -19,7 +19,7 @@ import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import { SubscriptionGuard } from '../../common/guards/subscription.guard';
 import { Permissions } from '../../common/decorators/permissions.decorator';
 import { CurrentCompany } from '../../common/decorators/user.decorator';
-import { Permission } from '../../common/types/enums';
+import { Permission, UserRole } from '../../common/types/enums';
 import { Company } from '../companies/entities/company.entity';
 
 @ApiTags('Roles')
@@ -28,6 +28,29 @@ import { Company } from '../companies/entities/company.entity';
 @UseGuards(JwtAuthGuard, SubscriptionGuard, PermissionsGuard)
 export class RolesController {
   constructor(private readonly rolesService: RolesService) {}
+
+  @Get('builtin')
+  @Permissions(Permission.USERS_VIEW)
+  @ApiOperation({
+    summary: 'Listar roles incorporados (default) con miembros',
+    description:
+      'Devuelve ADMIN, MANAGER, SELLER, CASHIER, VIEWER con sus permisos por ' +
+      'defecto y el conteo de miembros en esta empresa.',
+  })
+  listBuiltIn(@CurrentCompany() company: Company) {
+    return this.rolesService.listBuiltInRoles(company.id);
+  }
+
+  @Get('builtin/:role/members')
+  @Permissions(Permission.USERS_VIEW)
+  @ApiOperation({ summary: 'Miembros con un rol incorporado específico' })
+  @ApiParam({ name: 'role', enum: UserRole })
+  listBuiltInMembers(
+    @Param('role') role: string,
+    @CurrentCompany() company: Company,
+  ) {
+    return this.rolesService.listBuiltInRoleMembers(role as UserRole, company.id);
+  }
 
   @Get('permissions')
   @Permissions(Permission.USERS_MANAGE)

@@ -150,11 +150,51 @@ export class CustomersService {
       kind: customer.kind,
     };
 
+    // Si el contacto es proveedor o ambos, traemos los productos que él
+    // surte (products.supplier_id === customer.id). Esto materializa el
+    // "historial de proveedor" que pidieron los usuarios: ver de un vistazo
+    // todo lo que les compra a este contacto.
+    let supplied_products: Array<{
+      id: string;
+      name: string;
+      sku: string;
+      price: number;
+      stock: number;
+      is_active: boolean;
+    }> = [];
+    if (customer.kind === CustomerKind.SUPPLIER || customer.kind === CustomerKind.BOTH) {
+      const rows: any[] = await this.customerRepo.manager
+        .createQueryBuilder()
+        .select([
+          'p.id AS id',
+          'p.name AS name',
+          'p.sku AS sku',
+          'p.price AS price',
+          'p.stock AS stock',
+          'p.is_active AS is_active',
+        ])
+        .from('products', 'p')
+        .where('p.supplier_id = :id', { id: customer.id })
+        .andWhere('p.company_id = :companyId', { companyId })
+        .andWhere('p.deleted_at IS NULL')
+        .orderBy('p.name', 'ASC')
+        .getRawMany();
+      supplied_products = rows.map((r) => ({
+        id: r.id,
+        name: r.name,
+        sku: r.sku,
+        price: Number(r.price),
+        stock: Number(r.stock),
+        is_active: r.is_active,
+      }));
+    }
+
     return {
       customer: customerSummary,
       sales,
       debts,
       payments,
+      supplied_products,
     };
   }
 

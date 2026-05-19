@@ -12,7 +12,7 @@ import {
   ApiTags, ApiBearerAuth, ApiOperation, ApiParam,
 } from '@nestjs/swagger';
 import { ReturnsService } from './returns.service';
-import { CreateReturnDto, FilterReturnsDto } from './dto/return.dto';
+import { CreateReturnDto, FilterReturnsDto, ResolveDamageDto } from './dto/return.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import { SubscriptionGuard } from '../../common/guards/subscription.guard';
@@ -59,5 +59,24 @@ export class ReturnsController {
     @CurrentUser() user: User,
   ) {
     return this.returnsService.create(dto, company.id, user.id);
+  }
+
+  @Post(':id/resolve')
+  @Permissions(Permission.RETURNS_CREATE)
+  @ApiOperation({
+    summary: 'Resolver una avería: reincorpora el stock a una bodega',
+    description:
+      'Solo aplica a type=DAMAGE. Crea un movimiento IN por cada item ' +
+      'asociado al producto en la bodega indicada y deja la avería con ' +
+      'status=RESOLVED. Útil cuando el producto se reparó o se recuperó.',
+  })
+  @ApiParam({ name: 'id' })
+  resolve(
+    @Param('id') id: string,
+    @Body() dto: ResolveDamageDto,
+    @CurrentCompany() company: Company,
+    @CurrentUser() user: User,
+  ) {
+    return this.returnsService.resolveDamage(id, dto, company.id, user.id);
   }
 }

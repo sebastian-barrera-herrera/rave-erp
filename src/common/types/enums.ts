@@ -42,6 +42,11 @@ export enum PaymentMethod {
   CARD = 'CARD',
   TRANSFER = 'TRANSFER',
   CHECK = 'CHECK',
+  // Métodos digitales de Colombia agregados tras feedback: el frontend ya
+  // los ofrecía en el POS pero el backend rechazaba "value must be one of
+  // CASH,CARD,TRANSFER,CHECK,OTHER" porque no estaban en el enum.
+  NEQUI = 'NEQUI',
+  DAVIPLATA = 'DAVIPLATA',
   OTHER = 'OTHER',
 }
 
@@ -105,6 +110,12 @@ export enum ReturnType {
 export enum ReturnStatus {
   COMPLETED = 'COMPLETED',
   CANCELED = 'CANCELED',
+  /**
+   * Solo para averías: el producto fue reparado / recuperado y se reincorporó
+   * al inventario. Genera un movimiento IN y deja la avería como histórica
+   * (no se vuelve a contar como pérdida). No aplica a devoluciones de venta.
+   */
+  RESOLVED = 'RESOLVED',
 }
 
 export enum ServiceStatus {

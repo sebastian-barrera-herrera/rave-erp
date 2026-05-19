@@ -77,4 +77,19 @@ export class UpdateCompanyDto {
   @ApiPropertyOptional({ example: false })
   @IsOptional()
   show_banner?: boolean;
+
+  @ApiPropertyOptional({
+    example: 'lg',
+    description: 'Tamaño de letra base: sm | md | lg | xl',
+  })
+  @IsOptional() @IsString()
+  font_size?: string;
+
+  @ApiPropertyOptional({
+    example: 'inter',
+    description:
+      'Familia tipográfica: system, inter, rounded, serif, mono, playful, modern, elegant, tech, classic',
+  })
+  @IsOptional() @IsString()
+  font_family?: string;
 }

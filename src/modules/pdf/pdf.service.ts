@@ -143,6 +143,28 @@ function brandFor(company: Company | null | undefined) {
 export class PdfService {
   private readonly logger = new Logger(PdfService.name);
 
+  /**
+   * Elimina páginas vacías que PDFKit pudo haber creado por overflow
+   * accidental de `doc.text()`. PDFKit con `bufferPages: true` mantiene las
+   * páginas en `doc._pageBuffer`. La "última página útil" es la que
+   * contiene la posición actual del cursor (`doc.page`); cualquier página
+   * posterior fue auto-creada por overflow y NO se usó.
+   *
+   * Llamar SIEMPRE antes de `drawFooter` — porque drawFooter usa
+   * `switchToPage(i)` y "moverse" a una página fantasma haría que sobreviva.
+   */
+  private trimEmptyTrailingPages(doc: any) {
+    const buf: any[] | undefined = doc._pageBuffer;
+    if (!Array.isArray(buf) || buf.length <= 1) return;
+    const lastUsefulIndex = buf.indexOf(doc.page);
+    if (lastUsefulIndex < 0 || lastUsefulIndex >= buf.length - 1) return;
+    const removed = buf.length - lastUsefulIndex - 1;
+    doc._pageBuffer = buf.slice(0, lastUsefulIndex + 1);
+    this.logger.warn(
+      `PDF: ${removed} página(s) vacía(s) eliminada(s) tras overflow.`,
+    );
+  }
+
   // ─── Invoice ───────────────────────────────────────────────────────────────
   async generateInvoice(sale: Sale, company: Company): Promise<Buffer> {
     const logo = await fetchLogoBuffer(company?.logo_url, this.logger);
@@ -159,6 +181,7 @@ export class PdfService {
       this.drawCustomerBlock(doc, sale);
       this.drawItemsTable(doc, sale);
       this.drawTotals(doc, sale, company);
+      this.trimEmptyTrailingPages(doc);
       this.drawFooter(doc);
 
       doc.end();
@@ -182,6 +205,7 @@ export class PdfService {
       this.drawQuotationItemsTable(doc, quotation);
       this.drawQuotationTotals(doc, quotation, company);
       if (quotation.notes || quotation.terms) this.drawQuotationNotes(doc, quotation);
+      this.trimEmptyTrailingPages(doc);
       this.drawFooter(doc);
 
       doc.end();
@@ -204,6 +228,7 @@ export class PdfService {
       this.drawRemissionCustomerBlock(doc, remission);
       this.drawRemissionItemsTable(doc, remission);
       this.drawRemissionFooterNote(doc, remission);
+      this.trimEmptyTrailingPages(doc);
       this.drawFooter(doc);
 
       doc.end();
@@ -223,6 +248,7 @@ export class PdfService {
 
       this.drawPageHeader(doc, company, 'Reporte de Inventario', logo);
       this.drawInventoryTable(doc, data);
+      this.trimEmptyTrailingPages(doc);
       this.drawFooter(doc);
 
       doc.end();
@@ -363,6 +389,7 @@ export class PdfService {
 
       doc.moveDown(1);
       this.drawSalesReportTable(doc, data, company);
+      this.trimEmptyTrailingPages(doc);
       this.drawFooter(doc);
 
       doc.end();
@@ -638,9 +665,20 @@ export class PdfService {
     doc.fontSize(9).fillColor(MID_GRAY).font('Helvetica-Bold').text('COTIZAR A', 67, y + 10);
     doc.fontSize(12).fillColor(DARK).font('Helvetica-Bold').text(quotation.customer?.name || '', 67, y + 24);
     doc.fontSize(9).fillColor(DARK).font('Helvetica');
-    if (quotation.customer?.document_number) doc.text(`ID: ${quotation.customer.document_number}`, 67, y + 42);
-    if (quotation.customer?.email) doc.text(quotation.customer.email, 67, y + 54);
-    if (quotation.customer?.phone) doc.text(quotation.customer.phone, 67, y + 66);
+    // lineBreak:false + ellipsis para que clientes con email/tel largos no
+    // arrastren el cursor a una segunda página por wrap.
+    if (quotation.customer?.document_number)
+      doc.text(`ID: ${quotation.customer.document_number}`, 67, y + 42, {
+        width: 280, ellipsis: true, lineBreak: false,
+      });
+    if (quotation.customer?.email)
+      doc.text(quotation.customer.email, 67, y + 54, {
+        width: 280, ellipsis: true, lineBreak: false,
+      });
+    if (quotation.customer?.phone)
+      doc.text(quotation.customer.phone, 67, y + 66, {
+        width: 280, ellipsis: true, lineBreak: false,
+      });
     doc.y = y + 95;
   }
 

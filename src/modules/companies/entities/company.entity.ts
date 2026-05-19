@@ -79,6 +79,23 @@ export class Company {
   @Column({ default: false })
   show_banner: boolean;
 
+  /**
+   * Tipografía organizacional. Persiste en backend (antes en localStorage)
+   * para que toda la empresa vea la misma fuente al iniciar sesión.
+   * Valores: 'sm' | 'md' | 'lg' | 'xl' (default 'lg' tras feedback de que
+   * la fuente base se veía muy pequeña).
+   */
+  @Column({ type: 'varchar', length: 10, nullable: true })
+  font_size: string;
+
+  /**
+   * Familia tipográfica. Valores: 'system', 'inter', 'rounded', 'serif',
+   * 'mono', 'playful', 'modern', 'elegant', 'tech', 'classic'.
+   * NULL = sistema (default).
+   */
+  @Column({ type: 'varchar', length: 30, nullable: true })
+  font_family: string;
+
   @Column({ nullable: true })
   @Exclude()
   stripe_customer_id: string;

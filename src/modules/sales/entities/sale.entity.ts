@@ -3,7 +3,7 @@ import {
   UpdateDateColumn, DeleteDateColumn, ManyToOne, JoinColumn,
   OneToMany, OneToOne, Unique,
 } from 'typeorm';
-import { SaleType, SaleStatus } from '../../../common/types/enums';
+import { SaleType, SaleStatus, PaymentMethod } from '../../../common/types/enums';
 import { Company } from '../../companies/entities/company.entity';
 import { Customer } from '../../customers/entities/customer.entity';
 import { User } from '../../users/entities/user.entity';
@@ -53,6 +53,24 @@ export class Sale {
    */
   @Column('decimal', { precision: 14, scale: 2, default: 0 })
   down_payment: number;
+
+  /**
+   * Método de pago aplicado a la venta.
+   *   - CASH sale:    cómo pagó el cliente al momento (efectivo, Nequi, etc.)
+   *   - CREDIT sale:  método del anticipo (si lo hubo); el resto se cobra en
+   *                   abonos posteriores que registran su propio método.
+   * varchar en vez de enum nativo PG para no tener que correr ALTER TYPE
+   * cada vez que se agrega un método (NEQUI/DAVIPLATA se sumaron así).
+   */
+  @Column({ type: 'varchar', length: 20, nullable: true })
+  payment_method: PaymentMethod | null;
+
+  /**
+   * Referencia / código del pago (número de transferencia, voucher, etc.).
+   * Útil cuando el método no es efectivo y el contador necesita conciliar.
+   */
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  payment_reference: string | null;
 
   @Column({ length: 50 })
   invoice_number: string;

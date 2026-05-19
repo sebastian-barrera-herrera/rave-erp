@@ -86,10 +86,22 @@ export class CreateSaleDto {
   @ApiPropertyOptional({
     enum: PaymentMethod,
     example: PaymentMethod.CASH,
-    description: 'Método del anticipo (default CASH).',
+    description:
+      'Método de pago. Para venta CASH: cómo pagó el cliente. ' +
+      'Para venta CREDIT: método del anticipo si hubo (default CASH).',
   })
   @IsOptional() @IsEnum(PaymentMethod)
   down_payment_method?: PaymentMethod;
+
+  @ApiPropertyOptional({
+    example: 'TRX-839472',
+    description:
+      'Número/código de referencia del pago — solo aplica cuando el ' +
+      'método no es efectivo (transferencia, Nequi, etc.). Se guarda para ' +
+      'conciliación contable.',
+  })
+  @IsOptional() @IsString()
+  payment_reference?: string;
 
   @ApiPropertyOptional({
     description:

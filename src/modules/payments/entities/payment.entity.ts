@@ -36,7 +36,10 @@ export class Payment {
   @Column('decimal', { precision: 14, scale: 2 })
   amount: number;
 
-  @Column({ type: 'enum', enum: PaymentMethod, default: PaymentMethod.CASH })
+  // Varchar en lugar de enum nativo PG: agregar valores nuevos al enum
+  // requiere ALTER TYPE en cada despliegue. Con varchar + validación en
+  // class-validator basta con extender el enum TS y subir el código.
+  @Column({ type: 'varchar', length: 20, default: 'CASH' })
   method: PaymentMethod;
 
   @Column({ nullable: true, length: 100 })

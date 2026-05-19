@@ -11,7 +11,7 @@ import { Warehouse } from '../warehouses/entities/warehouse.entity';
 import { WarehouseStock } from '../warehouses/entities/warehouse-stock.entity';
 import { InventoryMovement } from '../inventory/entities/inventory-movement.entity';
 import { Debt } from '../debts/entities/debt.entity';
-import { CreateReturnDto, FilterReturnsDto } from './dto/return.dto';
+import { CreateReturnDto, FilterReturnsDto, ResolveDamageDto } from './dto/return.dto';
 import {
   ReturnType, ReturnStatus, MovementType, DebtStatus,
 } from '../../common/types/enums';
@@ -63,8 +63,15 @@ export class ReturnsService {
       const stockRepo = manager.getRepository(WarehouseStock);
 
       // Construir items + calcular total.
+      // Si hay venta asociada, validamos que (a) el producto realmente esté
+      // en la venta y (b) la cantidad a devolver no exceda lo vendido.
+      // Antes el frontend dejaba escribir cualquier número y el backend lo
+      // aceptaba — generaba stock fantasma cuando alguien se equivocaba.
       const items: ReturnItem[] = [];
       let total = 0;
+      // Mapa product_id → cantidad acumulada en este request, para validar
+      // que dos líneas con el mismo producto no excedan la cantidad vendida.
+      const usedQty = new Map<string, number>();
       for (const itemDto of dto.items) {
         const product = itemDto.product_id
           ? await manager.findOne(Product, {
@@ -73,14 +80,26 @@ export class ReturnsService {
           : null;
 
         const productName = product?.name ?? itemDto.product_name;
-        // Precio unitario: si no se manda, usar el de la venta original
-        // (si existe el item correspondiente), si no el precio actual del
-        // producto, si no 0.
         let unitPrice = itemDto.unit_price ?? 0;
-        if (unitPrice === 0 && sale && product) {
-          const original = sale.items.find((i) => i.product_id === product.id);
-          if (original) unitPrice = Number(original.unit_price);
-          else if (product.price) unitPrice = Number(product.price);
+        const originalItem =
+          sale && product
+            ? sale.items.find((i) => i.product_id === product.id)
+            : undefined;
+        if (sale && product && !originalItem) {
+          throw new BadRequestException(
+            `El producto "${productName}" no está en la venta ${sale.invoice_number}.`,
+          );
+        }
+        if (originalItem) {
+          const already = usedQty.get(product!.id) ?? 0;
+          const requested = already + itemDto.quantity;
+          if (requested > Number(originalItem.quantity)) {
+            throw new BadRequestException(
+              `No puedes devolver ${requested} de "${productName}": solo se vendieron ${originalItem.quantity}.`,
+            );
+          }
+          usedQty.set(product!.id, requested);
+          if (unitPrice === 0) unitPrice = Number(originalItem.unit_price);
         } else if (unitPrice === 0 && product?.price) {
           unitPrice = Number(product.price);
         }
@@ -222,5 +241,101 @@ export class ReturnsService {
     });
     if (!ret) throw new NotFoundException('Devolución no encontrada');
     return ret;
+  }
+
+  /**
+   * Marca una avería como resuelta y reincorpora los productos al stock de
+   * la bodega elegida. Solo aplica a type=DAMAGE con status=COMPLETED — para
+   * devoluciones de venta no tiene sentido (ya repusieron stock al crearse).
+   */
+  async resolveDamage(
+    id: string,
+    dto: ResolveDamageDto,
+    companyId: string,
+    userId: string,
+  ) {
+    return this.dataSource.transaction(async (manager) => {
+      const ret = await manager.findOne(Return, {
+        where: { id, company_id: companyId },
+        relations: ['items'],
+      });
+      if (!ret) throw new NotFoundException('Avería no encontrada');
+      if (ret.type !== ReturnType.DAMAGE) {
+        throw new BadRequestException(
+          'Solo las averías pueden marcarse como resueltas. Para devoluciones de venta no aplica.',
+        );
+      }
+      if (ret.status === ReturnStatus.RESOLVED) {
+        throw new BadRequestException('Esta avería ya fue resuelta.');
+      }
+      if (ret.status === ReturnStatus.CANCELED) {
+        throw new BadRequestException('No se puede resolver una avería cancelada.');
+      }
+
+      const warehouse = await manager.findOne(Warehouse, {
+        where: { id: dto.warehouse_id, company_id: companyId },
+      });
+      if (!warehouse) throw new NotFoundException('Bodega no encontrada');
+
+      const stockRepo = manager.getRepository(WarehouseStock);
+
+      for (const it of ret.items) {
+        if (!it.product_id) continue;
+        const product = await manager.findOne(Product, {
+          where: { id: it.product_id, company_id: companyId },
+        });
+        if (!product?.track_stock) continue;
+
+        let entry = await stockRepo.findOne({
+          where: { warehouse_id: warehouse.id, product_id: it.product_id },
+        });
+        const before = entry?.stock ?? 0;
+        const after = before + it.quantity;
+        if (entry) {
+          entry.stock = after;
+          await stockRepo.save(entry);
+        } else {
+          entry = stockRepo.create({
+            company_id: companyId,
+            warehouse_id: warehouse.id,
+            product_id: it.product_id,
+            stock: after,
+            min_stock: 0,
+          });
+          await stockRepo.save(entry);
+        }
+
+        await manager.save(
+          manager.create(InventoryMovement, {
+            company_id: companyId,
+            product_id: it.product_id,
+            user_id: userId,
+            warehouse_id: warehouse.id,
+            type: MovementType.IN,
+            quantity: it.quantity,
+            stock_before: before,
+            stock_after: after,
+            reason: `Avería resuelta — ${dto.notes ?? 'producto recuperado'}`,
+          }),
+        );
+
+        await this.warehousesService.recomputeProductStock(
+          manager, it.product_id, companyId,
+        );
+      }
+
+      ret.status = ReturnStatus.RESOLVED;
+      // notes acumulativas: mantenemos lo previo + bloque de resolución para
+      // trazabilidad (cuándo, quién, a qué bodega).
+      const stamp = `[Resuelta ${new Date().toISOString()} → bodega "${warehouse.name}"]`;
+      ret.notes = ret.notes ? `${ret.notes}\n${stamp}` : stamp;
+      if (dto.notes) ret.notes = `${ret.notes} ${dto.notes}`;
+      await manager.save(ret);
+
+      return manager.findOne(Return, {
+        where: { id: ret.id },
+        relations: ['items', 'customer', 'warehouse', 'sale', 'user'],
+      });
+    });
   }
 }

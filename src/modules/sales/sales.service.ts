@@ -211,6 +211,16 @@ export class SalesService {
         discount: globalDiscount,
         total,
         down_payment: downPayment,
+        // Para CASH se persiste el método con el que el cliente pagó.
+        // Para CREDIT solo si hubo anticipo — el resto se cobra después
+        // como Payment con su propio método.
+        payment_method:
+          dto.type === SaleType.CASH
+            ? (dto.down_payment_method ?? PaymentMethod.CASH)
+            : downPayment > 0
+              ? (dto.down_payment_method ?? PaymentMethod.CASH)
+              : null,
+        payment_reference: dto.payment_reference ?? null,
         items: saleItems,
       });
       sale.company_id = companyId;
@@ -276,6 +286,7 @@ export class SalesService {
               user_id: userId,
               amount: downPayment,
               method: dto.down_payment_method ?? PaymentMethod.CASH,
+              reference: dto.payment_reference ?? undefined,
               notes: `Anticipo al momento de la venta ${invoiceNumber}`,
             }),
           );
