@@ -56,7 +56,21 @@
       "Bash(git commit -m ' *)",
       "Bash(git -C \"C:\\\\Users\\\\Sebastián\\\\Documents\\\\erp-saas-backend\\\\erp-saas\" log --oneline -n 5)",
       "Bash(git -C \"C:\\\\Users\\\\Sebastián\\\\Documents\\\\front-next-rave\" log --oneline -n 10)",
-      "Bash(echo \"exit=$?\")"
+      "Bash(echo \"exit=$?\")",
+      "Bash(git fetch *)",
+      "Bash(git rev-list *)",
+      "Bash(curl -s -m 30 https://rave-erp.onrender.com/api/health)",
+      "Bash(curl -s -m 30 https://rave-erp.onrender.com/api/docs-json)",
+      "Bash(python -c \"import json,sys; d=json.load\\(sys.stdin\\); paths=list\\(d.get\\('paths',{}\\).keys\\(\\)\\); print\\('TOTAL ENDPOINTS:', len\\(paths\\)\\); print\\('NEW MODULES:'\\); [print\\(' ',p\\) for p in paths if '/returns' in p or '/services' in p or '/suppliers' in p]\")",
+      "Bash(npm ls *)",
+      "Bash(echo \"back=$?\")",
+      "Bash(echo \"front=$?\")",
+      "Bash(grep -v \"//.*doc\\\\.text\")",
+      "Bash(git checkout *)",
+      "Bash(git stash *)",
+      "Bash(git merge *)",
+      "Bash(git push *)",
+      "Bash(git pull *)"
     ]
   }
 }
