@@ -19,7 +19,7 @@ export class ReportsService {
     const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
     const [
-      salesToday,
+      cashInToday,
       salesMonth,
       salesAllTime,
       salesPrevMonth,
@@ -31,13 +31,45 @@ export class ReportsService {
       topProducts,
       recentSales,
     ] = await Promise.all([
-      // Sales today
-      this.dataSource.query(
-        `SELECT COALESCE(SUM(total),0) as amount, COUNT(*) as count
-         FROM sales WHERE company_id=$1 AND status='COMPLETED'
-         AND created_at >= $2 AND deleted_at IS NULL`,
-        [companyId, startOfDay],
-      ),
+      // "Dinero entrado hoy" = entradas reales de caja del día:
+      //   1. Ventas de CONTADO completadas hoy (total)
+      //   2. Anticipos (down_payment) registrados en ventas a CRÉDITO hoy
+      //   3. Pagos a deudas registrados hoy (sin importar cuándo fue la venta)
+      // No incluimos el total de ventas a crédito sin pagar — eso es deuda,
+      // no caja. Cuando paguen el crédito, ese pago entra por (3) ese día.
+      Promise.all([
+        this.dataSource.query(
+          `SELECT COALESCE(SUM(total),0) as amount, COUNT(*) as count
+           FROM sales
+           WHERE company_id=$1 AND status='COMPLETED' AND type='CASH'
+             AND created_at >= $2 AND deleted_at IS NULL`,
+          [companyId, startOfDay],
+        ),
+        this.dataSource.query(
+          `SELECT COALESCE(SUM(down_payment),0) as amount
+           FROM sales
+           WHERE company_id=$1 AND status='COMPLETED' AND type='CREDIT'
+             AND down_payment > 0
+             AND created_at >= $2 AND deleted_at IS NULL`,
+          [companyId, startOfDay],
+        ),
+        this.dataSource.query(
+          `SELECT COALESCE(SUM(amount),0) as amount, COUNT(*) as count
+           FROM payments
+           WHERE company_id=$1 AND created_at >= $2`,
+          [companyId, startOfDay],
+        ),
+      ]).then(([cashSales, downPayments, debtPayments]) => {
+        const total =
+          Number(cashSales[0]?.amount || 0) +
+          Number(downPayments[0]?.amount || 0) +
+          Number(debtPayments[0]?.amount || 0);
+        // El "count" se mantiene como número de ventas de contado del día,
+        // que es la métrica más útil de actividad (no contamos abonos como
+        // ventas para no inflar el conteo).
+        const count = Number(cashSales[0]?.count || 0);
+        return [{ amount: total, count }];
+      }),
       // Sales this month
       this.dataSource.query(
         `SELECT COALESCE(SUM(total),0) as amount, COUNT(*) as count
@@ -140,7 +172,7 @@ export class ReportsService {
 
     return {
       kpis: {
-        sales_today: { amount: Number(salesToday[0]?.amount || 0), count: Number(salesToday[0]?.count || 0) },
+        sales_today: { amount: Number(cashInToday[0]?.amount || 0), count: Number(cashInToday[0]?.count || 0) },
         sales_month: { amount: monthRev, count: Number(salesMonth[0]?.count || 0) },
         sales_total: { amount: Number(salesAllTime[0]?.amount || 0), count: Number(salesAllTime[0]?.count || 0) },
         sales_prev_month: prevRev,

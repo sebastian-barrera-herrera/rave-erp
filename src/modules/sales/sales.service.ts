@@ -294,12 +294,16 @@ export class SalesService {
     const limit = Math.min(Number(filters.limit) || 20, 100);
     const skip = (page - 1) * limit;
 
-    // Listado: solo devolvemos id+nombre del cliente, vendedor y bodega.
+    // Listado: incluimos `debt` (status + remaining + due_date) para que el
+    // frontend pueda pintar el badge "Vencida" en ventas a crédito cuya
+    // deuda asociada esté en mora. Sin estos campos el frontend solo veía
+    // status=COMPLETED y la vencida quedaba indistinguible de una completada.
     const qb = this.saleRepo
       .createQueryBuilder('s')
       .leftJoin('s.customer', 'c')
       .leftJoin('s.user', 'u')
       .leftJoin('s.warehouse', 'w')
+      .leftJoin('s.debt', 'd')
       .select([
         's.id', 's.invoice_number', 's.type', 's.status',
         's.subtotal', 's.tax_amount', 's.discount', 's.total',
@@ -307,6 +311,8 @@ export class SalesService {
         'c.id', 'c.name',
         'u.id', 'u.name',
         'w.id', 'w.name',
+        'd.id', 'd.status', 'd.remaining_amount', 'd.paid_amount',
+        'd.due_date', 'd.total_amount',
       ])
       .where('s.company_id = :companyId', { companyId })
       .andWhere('s.deleted_at IS NULL');
@@ -321,6 +327,22 @@ export class SalesService {
     if (filters.date_to) qb.andWhere('s.created_at <= :to', { to: new Date(filters.date_to) });
 
     qb.skip(skip).take(limit).orderBy('s.created_at', 'DESC');
+
+    // Antes de pintar, actualizamos las deudas vencidas a estado OVERDUE.
+    // Es un solo UPDATE indexado por status — barato y deja el badge fresco.
+    await this.dataSource
+      .createQueryBuilder()
+      .update(Debt)
+      .set({ status: DebtStatus.OVERDUE })
+      .where('company_id = :companyId', { companyId })
+      .andWhere('due_date IS NOT NULL')
+      .andWhere('due_date < :now', { now: new Date() })
+      .andWhere('status IN (:...statuses)', {
+        statuses: [DebtStatus.PENDING, DebtStatus.PARTIAL],
+      })
+      .andWhere('deleted_at IS NULL')
+      .execute();
+
     const [data, total] = await qb.getManyAndCount();
     return paginate(data, total, page, limit);
   }

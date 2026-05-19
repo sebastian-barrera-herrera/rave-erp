@@ -3,7 +3,9 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import {
   IsString, IsOptional, IsBoolean, IsInt, Min, IsUUID, MaxLength,
+  IsArray, ValidateNested, ArrayMinSize,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreateWarehouseDto {
@@ -100,7 +102,7 @@ export class TransferStockDto {
   reason?: string;
 }
 
-class BulkTransferItemDto {
+export class BulkTransferItemDto {
   @ApiProperty({ description: 'UUID del producto a transferir' })
   @IsUUID()
   product_id: string;
@@ -119,10 +121,17 @@ export class BulkTransferStockDto {
   @IsUUID()
   to_warehouse_id: string;
 
+  // Sin @IsArray + @ValidateNested + @Type el ValidationPipe global
+  // (whitelist + forbidNonWhitelisted) descarta los items y el servicio
+  // recibe `items: undefined` → "Debes incluir al menos un producto".
   @ApiProperty({
     description: 'Lista de productos a transferir',
     type: [BulkTransferItemDto],
   })
+  @IsArray()
+  @ArrayMinSize(1)
+  @ValidateNested({ each: true })
+  @Type(() => BulkTransferItemDto)
   items: BulkTransferItemDto[];
 
   @ApiPropertyOptional({ example: 'Reabastecimiento sucursal' })

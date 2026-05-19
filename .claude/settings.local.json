@@ -48,7 +48,15 @@
       "Bash(node -e \"console.log\\('next:', require\\('./package.json'\\).dependencies.next\\); console.log\\('installed:', require\\('./node_modules/next/package.json'\\).version\\)\")",
       "Bash(echo \"TS_EXIT=$?\")",
       "Bash(npx next *)",
-      "Bash(echo \"BUILD_EXIT=$?\")"
+      "Bash(echo \"BUILD_EXIT=$?\")",
+      "Bash(ls ../)",
+      "Bash(ls \"C:/Users/Sebastián/Documents/\")",
+      "Bash(git add *)",
+      "Bash(git restore *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git -C \"C:\\\\Users\\\\Sebastián\\\\Documents\\\\erp-saas-backend\\\\erp-saas\" log --oneline -n 5)",
+      "Bash(git -C \"C:\\\\Users\\\\Sebastián\\\\Documents\\\\front-next-rave\" log --oneline -n 10)",
+      "Bash(echo \"exit=$?\")"
     ]
   }
 }
