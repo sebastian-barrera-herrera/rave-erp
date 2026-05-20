@@ -170,7 +170,12 @@ export class PdfService {
     const logo = await fetchLogoBuffer(company?.logo_url, this.logger);
     return new Promise((resolve, reject) => {
       applyBrand(company);
-      const doc = new PDFDocument({ size: 'A4', margin: 50, bufferPages: true });
+      const doc = new PDFDocument({ size: 'A4',  margins: {
+    top: 30,
+    bottom: 30,
+    left: 30,
+    right: 30,
+  }, bufferPages: true });
       const buffers: Buffer[] = [];
       doc.on('data', (c) => buffers.push(c));
       doc.on('end', () => resolve(Buffer.concat(buffers)));
@@ -228,6 +233,7 @@ export class PdfService {
       this.drawRemissionCustomerBlock(doc, remission);
       this.drawRemissionItemsTable(doc, remission);
       this.drawRemissionFooterNote(doc, remission);
+      doc.flushPages();
       this.trimEmptyTrailingPages(doc);
       this.drawFooter(doc);
 
@@ -364,7 +370,7 @@ export class PdfService {
           width: 255, align: 'center',
         });
       }
-
+      this.trimEmptyTrailingPages(doc);
       this.drawFooter(doc);
       doc.end();
     });
@@ -973,37 +979,28 @@ export class PdfService {
   }
 
   private drawFooter(doc: any) {
-    const range = doc.bufferedPageRange();
-    for (let i = range.start; i < range.start + range.count; i++) {
-      doc.switchToPage(i);
-      // Línea de marca "Hebatech" + meta de página. Va dentro de los márgenes
-      // (50pt izq / der) y con `lineBreak: false` para que pdfkit no agregue
-      // una página extra cuando el cursor queda cerca del borde inferior.
-      const baseY = doc.page.height - 42;
-      doc.fontSize(8).fillColor(MID_GRAY).font('Helvetica')
-        .text(
-          'Hebatech — hebatechsoft@gmail.com · Atención lun–sáb 8 am a 8 pm',
-          50,
-          baseY,
-          {
-            align: 'center',
-            width: doc.page.width - 100,
-            lineBreak: false,
-          },
-        );
-      doc.fontSize(8).fillColor(MID_GRAY).font('Helvetica')
-        .text(
-          `Generado el ${fmtDateTime(new Date())} — Página ${i + 1} de ${range.count}`,
-          50,
-          baseY + 12,
-          {
-            align: 'center',
-            width: doc.page.width - 100,
-            lineBreak: false,
-          },
-        );
-    }
+  const range = doc.bufferedPageRange();
+
+  for (let i = 0; i < range.count; i++) {
+    doc.switchToPage(i);
+
+    const footerY = doc.page.height - 30;
+
+    doc.fontSize(8)
+      .fillColor(MID_GRAY)
+      .font('Helvetica')
+      .text(
+        `Generado el ${fmtDateTime(new Date())} — Página ${i + 1} de ${range.count}`,
+        50,
+        footerY,
+        {
+          width: doc.page.width - 100,
+          align: 'center',
+          lineBreak: false,
+        },
+      );
   }
+}
 
   private fmt(value: number | string): string {
     const n = Number(value) || 0;
@@ -1135,7 +1132,7 @@ export class PdfService {
         doc.fontSize(11).fillColor(MID_GRAY).font('Helvetica-Oblique')
           .text('Este día no tiene tareas ni visitas registradas.', 50, doc.y + 20);
       }
-
+      this.trimEmptyTrailingPages(doc);
       this.drawFooter(doc);
       doc.end();
     });
