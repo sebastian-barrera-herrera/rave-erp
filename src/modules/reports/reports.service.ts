@@ -35,6 +35,9 @@ export class ReportsService {
       //   1. Ventas de CONTADO completadas hoy (total)
       //   2. Anticipos (down_payment) registrados en ventas a CRÉDITO hoy
       //   3. Pagos a deudas registrados hoy (sin importar cuándo fue la venta)
+      //   4. (-) Devoluciones de ventas a CONTADO registradas hoy
+      //         (las de venta a crédito reducen `debt.remaining_amount` y no
+      //          tocan caja, por eso no se restan acá)
       // No incluimos el total de ventas a crédito sin pagar — eso es deuda,
       // no caja. Cuando paguen el crédito, ese pago entra por (3) ese día.
       Promise.all([
@@ -59,11 +62,21 @@ export class ReportsService {
            WHERE company_id=$1 AND created_at >= $2`,
           [companyId, startOfDay],
         ),
-      ]).then(([cashSales, downPayments, debtPayments]) => {
+        this.dataSource.query(
+          `SELECT COALESCE(SUM(r.total_amount),0) as amount
+           FROM returns r
+           JOIN sales s ON s.id = r.sale_id
+           WHERE r.company_id=$1 AND r.type='SALE_RETURN'
+             AND r.created_at >= $2 AND r.deleted_at IS NULL
+             AND s.type='CASH'`,
+          [companyId, startOfDay],
+        ),
+      ]).then(([cashSales, downPayments, debtPayments, cashRefunds]) => {
         const total =
           Number(cashSales[0]?.amount || 0) +
           Number(downPayments[0]?.amount || 0) +
-          Number(debtPayments[0]?.amount || 0);
+          Number(debtPayments[0]?.amount || 0) -
+          Number(cashRefunds[0]?.amount || 0);
         // El "count" se mantiene como número de ventas de contado del día,
         // que es la métrica más útil de actividad (no contamos abonos como
         // ventas para no inflar el conteo).

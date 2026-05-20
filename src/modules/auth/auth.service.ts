@@ -138,16 +138,21 @@ export class AuthService {
     if (!valid) throw new UnauthorizedException('Credenciales inválidas');
 
     // Resolve permissions: custom_role > built-in role
+    // Solo en memoria — la columna `custom_permissions` es un caché stale.
+    // `me()` y la generación del JWT ya resuelven al vuelo, así que no hace
+    // falta persistir en cada login (ahorra un UPDATE).
     const permissions: string[] =
       user.custom_role?.permissions?.length
         ? user.custom_role.permissions
         : ROLE_PERMISSIONS[user.role as UserRole] || [];
 
     user.custom_permissions = permissions;
-    user.last_login_at = new Date();
-    await this.userRepo.save(user);
 
-    const tokens = await this.generateTokens(user, user.company);
+    // El UPDATE de `last_login_at` se fusiona con el del refresh_token_hash
+    // dentro de generateTokens(), bajando de 2 round-trips a 1.
+    const tokens = await this.generateTokens(user, user.company, {
+      last_login_at: new Date(),
+    });
     return { user: this.sanitizeUser(user), company: user.company, tokens };
   }
 
@@ -288,7 +293,11 @@ export class AuthService {
     return this.sanitizeUser({ ...user, custom_permissions: permissions } as User);
   }
 
-  private async generateTokens(user: User, company: Company) {
+  private async generateTokens(
+    user: User,
+    company: Company,
+    extraUpdate: Partial<User> = {},
+  ) {
     const payload = {
       sub: user.id,
       email: user.email,
@@ -308,9 +317,17 @@ export class AuthService {
       }),
     ]);
 
-    // Store hashed refresh token
-    const refreshHash = await bcrypt.hash(refresh_token, 10);
-    await this.userRepo.update(user.id, { refresh_token_hash: refreshHash });
+    // Cost 6 (no 10): el refresh_token ya es JWT firmado (alta entropía,
+    // imposible de brute-forcear). El bcrypt aquí solo evita que un atacante
+    // con dump de DB pueda usar el hash directo como token — para ese
+    // escenario cost-6 es más que suficiente y baja ~90ms de cada login.
+    // bcrypt.compare detecta el cost del hash, los hashes viejos (cost 10)
+    // siguen validando sin migración.
+    const refreshHash = await bcrypt.hash(refresh_token, 6);
+    await this.userRepo.update(user.id, {
+      ...extraUpdate,
+      refresh_token_hash: refreshHash,
+    });
 
     return { access_token, refresh_token };
   }

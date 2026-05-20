@@ -175,7 +175,7 @@ export class PdfService {
     bottom: 30,
     left: 30,
     right: 30,
-  }, bufferPages: true });
+  } });
       const buffers: Buffer[] = [];
       doc.on('data', (c) => buffers.push(c));
       doc.on('end', () => resolve(Buffer.concat(buffers)));
@@ -198,7 +198,7 @@ export class PdfService {
     const logo = await fetchLogoBuffer(company?.logo_url, this.logger);
     return new Promise((resolve, reject) => {
       applyBrand(company);
-      const doc = new PDFDocument({ size: 'A4', margin: 50, bufferPages: true });
+      const doc = new PDFDocument({ size: 'A4', margin: 50 });
       const buffers: Buffer[] = [];
       doc.on('data', (c) => buffers.push(c));
       doc.on('end', () => resolve(Buffer.concat(buffers)));
@@ -222,7 +222,7 @@ export class PdfService {
     const logo = await fetchLogoBuffer(company?.logo_url, this.logger);
     return new Promise((resolve, reject) => {
       applyBrand(company);
-      const doc = new PDFDocument({ size: 'A4', margin: 50, bufferPages: true });
+      const doc = new PDFDocument({ size: 'A4', margin: 50 });
       const buffers: Buffer[] = [];
       doc.on('data', (c) => buffers.push(c));
       doc.on('end', () => resolve(Buffer.concat(buffers)));
@@ -246,7 +246,7 @@ export class PdfService {
     const logo = await fetchLogoBuffer(company?.logo_url, this.logger);
     return new Promise((resolve, reject) => {
       applyBrand(company);
-      const doc = new PDFDocument({ size: 'A4', margin: 40, layout: 'landscape', bufferPages: true });
+      const doc = new PDFDocument({ size: 'A4', margin: 40, layout: 'landscape'});
       const buffers: Buffer[] = [];
       doc.on('data', (c) => buffers.push(c));
       doc.on('end', () => resolve(Buffer.concat(buffers)));
@@ -270,7 +270,7 @@ export class PdfService {
     const logo = await fetchLogoBuffer(company?.logo_url, this.logger);
     return new Promise((resolve, reject) => {
       applyBrand(company);
-      const doc = new PDFDocument({ size: 'A4', margin: 60, bufferPages: true });
+      const doc = new PDFDocument({ size: 'A4', margin: 60 });
       const buffers: Buffer[] = [];
       doc.on('data', (c) => buffers.push(c));
       doc.on('end', () => resolve(Buffer.concat(buffers)));
@@ -381,7 +381,7 @@ export class PdfService {
     const logo = await fetchLogoBuffer(company?.logo_url, this.logger);
     return new Promise((resolve, reject) => {
       applyBrand(company);
-      const doc = new PDFDocument({ size: 'A4', margin: 50, bufferPages: true });
+      const doc = new PDFDocument({ size: 'A4', margin: 50});
       const buffers: Buffer[] = [];
       doc.on('data', (c) => buffers.push(c));
       doc.on('end', () => resolve(Buffer.concat(buffers)));
@@ -1017,7 +1017,7 @@ export class PdfService {
     const logo = await fetchLogoBuffer(company?.logo_url, this.logger);
     return new Promise((resolve, reject) => {
       applyBrand(company);
-      const doc = new PDFDocument({ size: 'A4', margin: 50, bufferPages: true });
+      const doc = new PDFDocument({ size: 'A4', margin: 50});
       const buffers: Buffer[] = [];
       doc.on('data', (c) => buffers.push(c));
       doc.on('end', () => resolve(Buffer.concat(buffers)));
