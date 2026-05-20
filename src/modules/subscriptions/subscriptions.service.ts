@@ -49,7 +49,10 @@ export class SubscriptionsService {
   private async normalizeTrial(company: Company): Promise<Company> {
     if (company.subscription_status !== SubscriptionStatus.TRIAL) return company;
     if (!company.trial_ends_at) return company;
-    const trialDays = this.configService.get<number>('STRIPE_TRIAL_DAYS', 3);
+    // Number() forzoso: configService devuelve la env como string.
+    // Sin esto, `getDate() + trialDays` hacía string concat y la
+    // normalización "arreglaba" el trial a +183 días en lugar de a +3.
+    const trialDays = Number(this.configService.get('STRIPE_TRIAL_DAYS', 3)) || 3;
     const maxAllowed = trialDays + 1; // tolerancia de 1 día por redondeos
     const msDiff = new Date(company.trial_ends_at).getTime() - Date.now();
     const daysDiff = Math.ceil(msDiff / 86400000);
@@ -94,7 +97,7 @@ export class SubscriptionsService {
       // La UI lo usa para calcular la barra de progreso correctamente sin
       // tener que adivinar la duración total del trial.
       trial_started_at: company.created_at ?? null,
-      trial_days_total: this.configService.get<number>('STRIPE_TRIAL_DAYS', 3),
+      trial_days_total: Number(this.configService.get('STRIPE_TRIAL_DAYS', 3)) || 3,
       trial_days_left: trialLeft,
       subscription_started_at: company.subscription_started_at ?? null,
       subscription_ends_at: company.subscription_ends_at,

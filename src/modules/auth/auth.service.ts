@@ -51,7 +51,11 @@ export class AuthService {
     });
     if (existingCompany) throw new ConflictException('Ya existe una empresa con ese email');
 
-    const trialDays = this.configService.get<number>('STRIPE_TRIAL_DAYS', 3);
+    // Number() forzoso: las env vars vienen siempre como string, y el
+    // genérico `<number>` de configService.get es solo typing de TS — no
+    // convierte en runtime. Sin esto, `getDate() + "3"` hace string concat
+    // (ej. 20 + "3" = "203") y `setDate("203")` mete ~183 días extra.
+    const trialDays = Number(this.configService.get('STRIPE_TRIAL_DAYS', 3)) || 3;
     const trialEndsAt = new Date();
     trialEndsAt.setDate(trialEndsAt.getDate() + trialDays);
 
